@@ -34,14 +34,16 @@
 #define FREQ_HOP_DISABLE 0x66
 #define FREQ_HOP_ENABLE 0x65
 
-#define SHORT_TEST_CSV_FILE "/sdcard/tpdata/ShortTest"
-#define OPEN_TEST_CSV_FILE "/sdcard/tpdata/OpenTest"
-#define FW_RAWDATA_CSV_FILE "/sdcard/tpdata/FWMutualTest"
-#define FW_CC_CSV_FILE "/sdcard/tpdata/FWCCTest"
-#define NOISE_TEST_CSV_FILE "/sdcard/tpdata/NoiseTest"
-#define PEN_FW_RAW_TEST_CSV_FILE "/sdcard/tpdata/PenFWRawTest"
-#define PEN_NOISE_TEST_CSV_FILE "/sdcard/tpdata/PenNoiseTest"
-#define STORE_RESULT_PATH "/sdcard/tpdata/"
+/*TabA7 Lite code for OT8-5211 by gaozhengwei at 20211021 start*/
+#define SHORT_TEST_CSV_FILE "/data/tpdata/ShortTest"
+#define OPEN_TEST_CSV_FILE "/data/tpdata/OpenTest"
+#define FW_RAWDATA_CSV_FILE "/data/tpdata/FWMutualTest"
+#define FW_CC_CSV_FILE "/data/tpdata/FWCCTest"
+#define NOISE_TEST_CSV_FILE "/data/tpdata/NoiseTest"
+#define PEN_FW_RAW_TEST_CSV_FILE "/data/tpdata/PenFWRawTest"
+#define PEN_NOISE_TEST_CSV_FILE "/data/tpdata/PenNoiseTest"
+#define STORE_RESULT_PATH "/data/tpdata/"
+/*TabA7 Lite code for OT8-5211 by gaozhengwei at 20211021 end*/
 #if LPWG_TEST
 #define LPWG_RAWDATA_CSV_FILE "/data/local/tmp/LPWGRawdataTest.csv"
 #define LPWG_NOISE_CSV_FILE "/data/local/tmp/LPWGNoiseTest.csv"
@@ -3154,7 +3156,7 @@ static int32_t nvt_selftest_for_hq(void)
 
 	input_info(true, &ts->client->dev, "%s: ++\n", __func__);
 
-	if (mutex_lock_interruptible(&ts->lock)) {
+	if (mutex_lock_interruptible(&ts->ito_lock)) {
 		return -ERESTARTSYS;
 	}
 
@@ -3166,7 +3168,7 @@ static int32_t nvt_selftest_for_hq(void)
 	nvt_update_firmware(ts->platdata->firmware_name_mp);
 
 	if (nvt_get_fw_info()) {
-		mutex_unlock(&ts->lock);
+		mutex_unlock(&ts->ito_lock);
 		input_err(true, &ts->client->dev, "get fw info failed!\n");
 		return -EAGAIN;
 	}
@@ -3188,7 +3190,7 @@ static int32_t nvt_selftest_for_hq(void)
 		if (nvt_mp_parse_dt(np, mpcriteria)) {
 			//---Download Normal FW---
 			nvt_update_firmware(ts->platdata->firmware_name);
-			mutex_unlock(&ts->lock);
+			mutex_unlock(&ts->ito_lock);
 			input_err(true, &ts->client->dev, "mp parse device tree failed!\n");
 			return -EINVAL;
 		}
@@ -3199,13 +3201,13 @@ static int32_t nvt_selftest_for_hq(void)
 	}
 
 	if (nvt_switch_FreqHopEnDis(FREQ_HOP_DISABLE)) {
-		mutex_unlock(&ts->lock);
+		mutex_unlock(&ts->ito_lock);
 		input_err(true, &ts->client->dev, "switch frequency hopping disable failed!\n");
 		return -EAGAIN;
 	}
 
 	if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN)) {
-		mutex_unlock(&ts->lock);
+		mutex_unlock(&ts->ito_lock);
 		input_err(true, &ts->client->dev, "check fw reset state failed!\n");
 		return -EAGAIN;
 	}
@@ -3214,7 +3216,7 @@ static int32_t nvt_selftest_for_hq(void)
 
 	//---Enter Test Mode---
 	if (nvt_clear_fw_status()) {
-		mutex_unlock(&ts->lock);
+		mutex_unlock(&ts->ito_lock);
 		input_err(true, &ts->client->dev, "clear fw status failed!\n");
 		return -EAGAIN;
 	}
@@ -3222,7 +3224,7 @@ static int32_t nvt_selftest_for_hq(void)
 	nvt_change_mode(MP_MODE_CC);
 
 	if (nvt_check_fw_status()) {
-		mutex_unlock(&ts->lock);
+		mutex_unlock(&ts->ito_lock);
 		input_err(true, &ts->client->dev, "check fw status failed!\n");
 		return -EAGAIN;
 	}
@@ -3356,7 +3358,7 @@ static int32_t nvt_selftest_for_hq(void)
 	//---Download Normal FW---
 	nvt_update_firmware(ts->platdata->firmware_name);
 
-	mutex_unlock(&ts->lock);
+	mutex_unlock(&ts->ito_lock);
 	/*TabA7 Lite code for OT8-2503 by liufurong at 20210210 start*/
 	queue_delayed_work(ts->ito_wq, &ts->ito_test_wq, msecs_to_jiffies(1));
 	/*TabA7 Lite code for OT8-2503 by liufurong at 20210210 end*/
@@ -3398,7 +3400,7 @@ static void nvt_ito_test_work(struct work_struct *work)
 	int i = 0;
 	int data_len = 0;
 	input_info(true, &ts->client->dev, "write ito data start\n");
-	mutex_lock(&ts->lock);
+	mutex_lock(&ts->ito_lock);
 	old_fs = get_fs();
 	for (i = 0; i < g_ito_item_index; i++)
 	{
@@ -3407,7 +3409,7 @@ static void nvt_ito_test_work(struct work_struct *work)
 		}
 		if (IS_ERR(pfile)) {
 			input_err(true, &ts->client->dev, "error occured while opening file %s.", g_ito_data[i].filepath);
-			mutex_unlock(&ts->lock);
+			mutex_unlock(&ts->ito_lock);
 			return;
 		}
 		input_info(true, &ts->client->dev, "open %s suscess\n", g_ito_data[i].filepath);
@@ -3424,7 +3426,7 @@ static void nvt_ito_test_work(struct work_struct *work)
 		}
 	}
 	set_fs(old_fs);
-	mutex_unlock(&ts->lock);
+	mutex_unlock(&ts->ito_lock);
 	input_info(true, &ts->client->dev, "write ito data end\n");
 }
 /*TabA7 Lite code for OT8-2503 by liufurong at 20210210 end*/
@@ -3436,8 +3438,10 @@ static ssize_t nvt_test_show(struct device *dev,struct device_attribute *attr,ch
 	NVT_LOG("Run MP test with LCM on\n");
 
 	/* Create the directory for mp_test result */
-	if ((dev_mkdir(STORE_RESULT_PATH, S_IRUGO | S_IWUSR)) != 0)
+	/*TabA7 Lite code for OT8-5211 by gaozhengwei at 20211021 start*/
+	if ((dev_mkdir(STORE_RESULT_PATH, 0777)) != 0)
 		NVT_ERR("Failed to create directory for mp_test\n");
+	/*TabA7 Lite code for OT8-5211 by gaozhengwei at 20211021 end*/
 
 	ret = nvt_selftest_for_hq();
 
@@ -3479,6 +3483,9 @@ int nvt_test_node_init(struct platform_device *tpinfo_device)
     ts->ito_wq = alloc_workqueue("nvt_ito_wq", WQ_UNBOUND | WQ_MEM_RECLAIM, 1);
     INIT_DELAYED_WORK(&ts->ito_test_wq, nvt_ito_test_work);
 /*TabA7 Lite code for OT8-2503 by liufurong at 20210210 end*/
+    /*TabA7 Lite code for OT8-5211 by gaozhengwei at 20211021 start*/
+    mutex_init(&ts->ito_lock);
+    /*TabA7 Lite code for OT8-5211 by gaozhengwei at 20211021 end*/
     return err;
 }
 

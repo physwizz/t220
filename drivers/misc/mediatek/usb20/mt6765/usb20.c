@@ -9,13 +9,66 @@
 #include <linux/platform_device.h>
 #include <linux/of_address.h>
 #include <linux/power_supply.h>
+#include <linux/mfd/syscon.h>
+#include <linux/regmap.h>
+#include <linux/clk.h>
 
-#include "musb_core.h"
-#include "mtk_musb.h"
-#include "musbhsdma.h"
 #include "usb20.h"
+#include "../musb.h"
+#include "../musb_core.h"
+#include "../mtk_musb.h"
+#include "../musb_dr.h"
+#include "../musbhsdma.h"
+
+#ifdef CONFIG_MTK_MUSB_PHY
+#include <usb20_phy.h>
+#endif
+
+#if defined(CONFIG_CABLE_TYPE_NOTIFIER)
+#include <linux/cable_type_notifier.h>
+#endif
 
 #include <mt-plat/mtk_boot_common.h>
+#include <linux/usb_notify.h>
+
+MODULE_LICENSE("GPL v2");
+
+struct musb *mtk_musb;
+EXPORT_SYMBOL(mtk_musb);
+
+bool mtk_usb_power;
+EXPORT_SYMBOL(mtk_usb_power);
+
+int musb_force_on;
+EXPORT_SYMBOL(musb_force_on);
+
+static void (*usb_hal_dpidle_request_fptr)(int);
+void usb_hal_dpidle_request(int mode)
+{
+	if (usb_hal_dpidle_request_fptr)
+		usb_hal_dpidle_request_fptr(mode);
+}
+EXPORT_SYMBOL(usb_hal_dpidle_request);
+
+void register_usb_hal_dpidle_request(void (*function)(int))
+{
+	usb_hal_dpidle_request_fptr = function;
+}
+EXPORT_SYMBOL(register_usb_hal_dpidle_request);
+
+void (*usb_hal_disconnect_check_fptr)(void);
+void usb_hal_disconnect_check(void)
+{
+	if (usb_hal_disconnect_check_fptr)
+		usb_hal_disconnect_check_fptr();
+}
+EXPORT_SYMBOL(usb_hal_disconnect_check);
+
+void register_usb_hal_disconnect_check(void (*function)(void))
+{
+	usb_hal_disconnect_check_fptr = function;
+}
+EXPORT_SYMBOL(register_usb_hal_disconnect_check);
 
 #ifdef FPGA_PLATFORM
 #include <linux/i2c.h>
@@ -32,10 +85,6 @@
 
 #if defined(CONFIG_MTK_BASE_POWER)
 #include "mtk_spm_resource_req.h"
-
-#if defined(CONFIG_CABLE_TYPE_NOTIFIER)
-#include <linux/cable_type_notifier.h>
-#endif
 
 static int dpidle_status = USB_DPIDLE_ALLOWED;
 module_param(dpidle_status, int, 0644);
@@ -76,6 +125,9 @@ static void issue_dpidle_timer(void)
 static void usb_6765_dpidle_request(int mode)
 {
 	unsigned long flags;
+#ifdef CONFIG_MACH_MT6761
+	int ret;
+#endif
 
 	spin_lock_irqsave(&usb_hal_dpidle_lock, flags);
 
@@ -111,6 +163,32 @@ static void usb_6765_dpidle_request(int mode)
 		DBG(0, "USB_DPIDLE_TIMER\n");
 		issue_dpidle_timer();
 		break;
+	case USB_DPIDLE_SUSPEND:
+		spm_resource_req(SPM_RESOURCE_USER_SSUSB,
+			SPM_RESOURCE_MAINPLL | SPM_RESOURCE_CK_26M |
+			SPM_RESOURCE_AXI_BUS);
+#ifdef CONFIG_MACH_MT6761
+		/* workaround: keep clock on for wakeup function */
+		ret = clk_prepare_enable(glue->musb_clk_top_sel);
+		if (ret)
+			DBG(0, "%s: clk_prepare_enable: musb_clk_top_sel failed: %d\n",
+				__func__, ret);
+		ret = clk_prepare_enable(glue->musb_clk);
+		if (ret)
+			DBG(0, "%s: clk_prepare_enable: musb_clk failed: %d\n", __func__, ret);
+#endif
+		DBG(0, "DPIDLE_SUSPEND\n");
+		break;
+	case USB_DPIDLE_RESUME:
+		spm_resource_req(SPM_RESOURCE_USER_SSUSB,
+			SPM_RESOURCE_RELEASE);
+#ifdef CONFIG_MACH_MT6761
+		/* workaround: keep clock on for wakeup function */
+		clk_disable_unprepare(glue->musb_clk_top_sel);
+		clk_disable_unprepare(glue->musb_clk);
+#endif
+		DBG(0, "DPIDLE_RESUME\n");
+		break;
 	default:
 		DBG(0, "[ERROR] Are you kidding!?!?\n");
 		break;
@@ -120,16 +198,437 @@ static void usb_6765_dpidle_request(int mode)
 }
 #endif
 
+/* BC1.2 */
+/* Duplicate define in phy-mtk-tphy */
+#define PHY_MODE_BC11_SW_SET 1
+#define PHY_MODE_BC11_SW_CLR 2
+
+void Charger_Detect_Init(void)
+{
+	if(!glue) {
+		DBG(0, "wlc 01!glue, maybe something wrong?\n");
+		return;
+	}
+	usb_prepare_enable_clock(true);
+
+	/* wait 50 usec. */
+	udelay(50);
+
+#ifdef CONFIG_PHY_MTK_TPHY
+	phy_set_mode_ext(glue->phy, PHY_MODE_USB_DEVICE, PHY_MODE_BC11_SW_SET);
+#endif
+	usb_prepare_enable_clock(false);
+
+	DBG(0, "%s\n", __func__);
+}
+EXPORT_SYMBOL(Charger_Detect_Init);
+
+void Charger_Detect_Release(void)
+{
+	if(!glue) {
+		DBG(0, "wlc 02!glue, maybe something wrong?\n");
+		return;
+	}
+	usb_prepare_enable_clock(true);
+
+#ifdef CONFIG_PHY_MTK_TPHY
+	phy_set_mode_ext(glue->phy, PHY_MODE_USB_DEVICE, PHY_MODE_BC11_SW_CLR);
+#endif
+
+	udelay(1);
+
+	usb_prepare_enable_clock(false);
+
+	DBG(0, "%s\n", __func__);
+}
+EXPORT_SYMBOL(Charger_Detect_Release);
+
+void usb_phy_tuning(void)
+{
+	static bool inited;
+	static s32 u2_vrt_ref, u2_term_ref, u2_enhance;
+	static struct device_node *of_node;
+
+	if (!inited) {
+		u2_vrt_ref = u2_term_ref = u2_enhance = -1;
+		of_node = of_find_compatible_node(NULL,
+			NULL, "mediatek,phy_tuning");
+		if (of_node) {
+			/* value won't be updated if property not being found */
+			of_property_read_u32(of_node,
+				"u2_vrt_ref", (u32 *) &u2_vrt_ref);
+			of_property_read_u32(of_node,
+				"u2_term_ref", (u32 *) &u2_term_ref);
+			of_property_read_u32(of_node,
+				"u2_enhance", (u32 *) &u2_enhance);
+		}
+		inited = true;
+	} else if (!of_node)
+		return;
+
+	if (u2_vrt_ref != -1) {
+		if (u2_vrt_ref <= VAL_MAX_WIDTH_3) {
+			USBPHY_CLR32(OFFSET_RG_USB20_VRT_VREF_SEL,
+				VAL_MAX_WIDTH_3 << SHFT_RG_USB20_VRT_VREF_SEL);
+			USBPHY_SET32(OFFSET_RG_USB20_VRT_VREF_SEL,
+				u2_vrt_ref << SHFT_RG_USB20_VRT_VREF_SEL);
+		}
+	}
+	if (u2_term_ref != -1) {
+		if (u2_term_ref <= VAL_MAX_WIDTH_3) {
+			USBPHY_CLR32(OFFSET_RG_USB20_TERM_VREF_SEL,
+				VAL_MAX_WIDTH_3 << SHFT_RG_USB20_TERM_VREF_SEL);
+			USBPHY_SET32(OFFSET_RG_USB20_TERM_VREF_SEL,
+				u2_term_ref << SHFT_RG_USB20_TERM_VREF_SEL);
+		}
+	}
+	if (u2_enhance != -1) {
+		if (u2_enhance <= VAL_MAX_WIDTH_2) {
+			USBPHY_CLR32(OFFSET_RG_USB20_PHY_REV6,
+				VAL_MAX_WIDTH_2 << SHFT_RG_USB20_PHY_REV6);
+			USBPHY_SET32(OFFSET_RG_USB20_PHY_REV6,
+					u2_enhance<<SHFT_RG_USB20_PHY_REV6);
+		}
+	}
+}
+
+void usb_rev6_setting(int value)
+{
+	static int direct_return;
+
+	if (direct_return)
+		return;
+
+	/* RG_USB20_PHY_REV[7:0] = 8'b01000000 */
+	USBPHY_CLR32(0x18, (0xFF << 24));
+
+	if (value)
+		USBPHY_SET32(0x18, (value << 24));
+	else
+		direct_return = 1;
+}
+
+static void hs_slew_rate_cal(void)
+{
+	unsigned long data;
+	unsigned long x;
+	unsigned char value;
+	unsigned long start_time, timeout;
+	unsigned int timeout_flag = 0;
+	/* enable usb ring oscillator. */
+	USBPHY_SET32(0x14, (0x1 << 15));
+
+	/* wait 1us. */
+	udelay(1);
+
+	/* enable free run clock */
+	USBPHY_SET32(0xF10 - 0x800, (0x01 << 8));
+	/* setting cyclecnt. */
+	USBPHY_SET32(0xF00 - 0x800, (0x04 << 8));
+	/* enable frequency meter */
+	USBPHY_SET32(0xF00 - 0x800, (0x01 << 24));
+
+	/* wait for frequency valid. */
+	start_time = jiffies;
+	timeout = jiffies + 3 * HZ;
+
+	while (!((USBPHY_READ32(0xF10 - 0x800) & 0xFF) == 0x1)) {
+		if (time_after(jiffies, timeout)) {
+			timeout_flag = 1;
+			break;
+		}
+	}
+
+	/* read result. */
+	if (timeout_flag) {
+		DBG(0, "[USBPHY] Slew Rate Calibration: Timeout\n");
+		value = 0x4;
+	} else {
+		data = USBPHY_READ32(0xF0C - 0x800);
+		x = ((1024 * FRA * PARA) / data);
+		value = (unsigned char)(x / 1000);
+		if ((x - value * 1000) / 100 >= 5)
+			value += 1;
+		DBG(1, "[USBPHY]slew calibration:FM_OUT =%lu,x=%lu,value=%d\n",
+				data, x, value);
+	}
+
+	/* disable Frequency and disable free run clock. */
+	USBPHY_CLR32(0xF00 - 0x800, (0x01 << 24));
+	USBPHY_CLR32(0xF10 - 0x800, (0x01 << 8));
+
+#define MSK_RG_USB20_HSTX_SRCTRL 0x7
+	/* all clr first then set */
+	/*HS03s for DEVAL5625-8 by wenyaqi at 20210425 start*/
+	#if 0
+	USBPHY_CLR32(0x14, (MSK_RG_USB20_HSTX_SRCTRL << 12));
+	USBPHY_SET32(0x14, ((value & MSK_RG_USB20_HSTX_SRCTRL) << 12));
+	#endif
+	/*HS03s for DEVAL5625-8 by wenyaqi at 20210425 end*/
+
+	/* disable usb ring oscillator. */
+	USBPHY_CLR32(0x14, (0x1 << 15));
+}
+
+/* M17_USB_PWR Sequence 20160603.xls */
+void usb_phy_recover(struct musb *musb)
+{
+	unsigned int efuse_val = 0;
+
+#ifdef CONFIG_MTK_UART_USB_SWITCH
+	if (in_uart_mode) {
+		DBG(0, "At UART mode. No %s\n", __func__);
+		return;
+	}
+#endif
+
+	/* wait 50 usec. */
+	udelay(50);
+
+	/*
+	 * 04.force_uart_en	1'b0 0x68 26
+	 * 04.RG_UART_EN		1'b0 0x6C 16
+	 * 04.rg_usb20_gpio_ctl	1'b0 0x20 09
+	 * 04.usb20_gpio_mode	1'b0 0x20 08
+
+	 * 05.force_suspendm	1'b0 0x68 18
+
+	 * 06.RG_DPPULLDOWN	1'b0 0x68 06
+	 * 07.RG_DMPULLDOWN	1'b0 0x68 07
+	 * 08.RG_XCVRSEL[1:0]	2'b00 0x68 [04:05]
+	 * 09.RG_TERMSEL		1'b0 0x68 02
+	 * 10.RG_DATAIN[3:0]	4'b0000 0x68 [10:13]
+	 * 11.force_dp_pulldown	1'b0 0x68 20
+	 * 12.force_dm_pulldown	1'b0 0x68 21
+	 * 13.force_xcversel	1'b0 0x68 19
+	 * 14.force_termsel	1'b0 0x68 17
+	 * 15.force_datain	1'b0 0x68 23
+	 * 16.RG_USB20_BC11_SW_EN	1'b0 0x18 23
+	 * 17.RG_USB20_OTG_VBUSCMP_EN	1'b1 0x18 20
+	 */
+
+	/* clean PUPD_BIST_EN */
+	/* PUPD_BIST_EN = 1'b0 */
+	/* PMIC will use it to detect charger type */
+	/* NEED?? USBPHY_CLR8(0x1d, 0x10);*/
+	USBPHY_CLR32(0x1c, (0x1 << 12));
+
+	/* force_uart_en, 1'b0 */
+	USBPHY_CLR32(0x68, (0x1 << 26));
+	/* RG_UART_EN, 1'b0 */
+	USBPHY_CLR32(0x6C, (0x1 << 16));
+	/* rg_usb20_gpio_ctl, 1'b0, usb20_gpio_mode, 1'b0 */
+	USBPHY_CLR32(0x20, (0x1 << 9));
+	USBPHY_CLR32(0x20, (0x1 << 8));
+
+	/* force_suspendm, 1'b0 */
+	USBPHY_CLR32(0x68, (0x1 << 18));
+
+	/* RG_DPPULLDOWN, 1'b0, RG_DMPULLDOWN, 1'b0 */
+	USBPHY_CLR32(0x68, ((0x1 << 6) | (0x1 << 7)));
+
+	/* RG_XCVRSEL[1:0], 2'b00. */
+	USBPHY_CLR32(0x68, (0x3 << 4));
+
+	/* RG_TERMSEL, 1'b0 */
+	USBPHY_CLR32(0x68, (0x1 << 2));
+	/* RG_DATAIN[3:0], 4'b0000 */
+	USBPHY_CLR32(0x68, (0xF << 10));
+
+	/* force_dp_pulldown, 1'b0, force_dm_pulldown, 1'b0,
+	 * force_xcversel, 1'b0, force_termsel, 1'b0, force_datain, 1'b0
+	 */
+	USBPHY_CLR32(0x68, ((0x1 << 20) | (0x1 << 21) |
+				(0x1 << 19) | (0x1 << 17) | (0x1 << 23)));
+
+	/* RG_USB20_BC11_SW_EN, 1'b0 */
+	USBPHY_CLR32(0x18, (0x1 << 23));
+	/* RG_USB20_OTG_VBUSCMP_EN, 1'b1 */
+	USBPHY_SET32(0x18, (0x1 << 20));
+
+	/* RG_USB20_PHY_REV[7:0] = 8'b01000000 */
+	usb_rev6_setting(0x40);
+
+	/* wait 800 usec. */
+	udelay(800);
+
+	/* force enter device mode */
+	set_usb_phy_mode(PHY_DEV_ACTIVE);
+
+	hs_slew_rate_cal();
+
+	efuse_val = musb->efuse_val;
+	if (efuse_val) {
+		DBG(0, "apply efuse setting, RG_USB20_INTR_CAL=0x%x\n",
+			efuse_val);
+		USBPHY_CLR32(0x04, (0x1F<<19));
+		/* Add pass margin */
+		USBPHY_SET32(0x04, ((efuse_val+2)<<19));
+	}
+
+	/* disc threshold to max, RG_USB20_DISCTH[7:4], dft:1000, MAX:1111 */
+	USBPHY_SET32(0x18, (0xf0<<0));
+	usb_phy_tuning();
+
+	DBG(0, "usb recovery success\n");
+}
+
+#ifdef CONFIG_MTK_UART_USB_SWITCH
+bool in_uart_mode;
+bool usb_phy_check_in_uart_mode(void)
+{
+	int mode;
+
+	usb_enable_clock(true);
+	udelay(50);
+
+	/* get phy mode */
+	mode = phy_get_mode_ext(glue->phy);
+
+	/* usb_port_mode = USBPHY_READ32(0x68); */
+	usb_enable_clock(false);
+
+	if (mode == PHY_MODE_UART) {
+		DBG(0, "%s:%d - IN UART MODE : 0x%x\n",
+				__func__, __LINE__, mode);
+		mode = true;
+	} else {
+		DBG(0, "%s:%d - NOT IN UART MODE : 0x%x\n",
+				__func__, __LINE__, mode);
+		mode = false;
+	}
+	return mode;
+}
+
+void usb_phy_switch_to_uart(void)
+{
+	unsigned int val = 0;
+
+	in_uart_mode = usb_phy_check_in_uart_mode();
+	if (in_uart_mode) {
+		DBG(0, "Already in UART mode.\n");
+		return;
+	}
+
+	udelay(50);
+
+	/* set PHY UART mode */
+	phy_set_mode(glue->phy, PHY_MODE_UART);
+
+	/* GPIO Selection */
+	val = readl(ap_gpio_base);
+	writel(val & (~(GPIO_SEL_MASK)), ap_gpio_base);
+
+	val = readl(ap_gpio_base);
+	writel(val | (GPIO_SEL_UART0), ap_gpio_base);
+
+	in_uart_mode = true;
+}
+
+void usb_phy_switch_to_usb(void)
+{
+	unsigned int val = 0;
+
+	/* GPIO Selection */
+	val = readl(ap_gpio_base);
+	writel(val & (~(GPIO_SEL_MASK)), ap_gpio_base);
+
+	/* set UART mode to USB */
+	phy_set_mode(glue->phy, PHY_MODE_USB_OTG);
+
+	in_uart_mode = false;
+
+	phy_power_on(glue->phy);
+}
+
+void usb_phy_context_save(void)
+{
+	in_uart_mode = usb_phy_check_in_uart_mode();
+}
+EXPORT_SYMBOL(usb_phy_context_save);
+
+void usb_phy_context_restore(void)
+{
+	if (in_uart_mode)
+		usb_phy_switch_to_uart();
+}
+EXPORT_SYMBOL(usb_phy_context_restore);
+#endif
+
+#ifdef CONFIG_USB_MTK_OTG
+static struct regmap *pericfg;
+
+static void mt_usb_wakeup(struct musb *musb, bool enable)
+{
+	u32 tmp;
+	bool is_con = musb->port1_status & USB_PORT_STAT_CONNECTION;
+
+	if (IS_ERR_OR_NULL(pericfg)) {
+		DBG(0, "init fail");
+		return;
+	}
+
+	DBG(0, "connection=%d\n", is_con);
+
+	if (enable) {
+		regmap_read(pericfg, USB_WAKEUP_DEC_CON1, &tmp);
+		tmp |= USB1_CDDEBOUNCE(0x8) | USB1_CDEN;
+		regmap_write(pericfg, USB_WAKEUP_DEC_CON1, tmp);
+
+		tmp = musb_readw(musb->mregs, RESREG);
+		if (is_con)
+			tmp &= ~HSTPWRDWN_OPT;
+		else
+			tmp |= HSTPWRDWN_OPT;
+		musb_writew(musb->mregs, RESREG, tmp);
+	} else {
+		regmap_read(pericfg, USB_WAKEUP_DEC_CON1, &tmp);
+		tmp &= ~(USB1_CDEN | USB1_CDDEBOUNCE(0xf));
+		regmap_write(pericfg, USB_WAKEUP_DEC_CON1, tmp);
+
+		tmp = musb_readw(musb->mregs, RESREG);
+		tmp &= ~HSTPWRDWN_OPT;
+		musb_writew(musb->mregs, RESREG, tmp);
+		if (is_con && !musb->is_active) {
+			DBG(0, "resume with device connected\n");
+			musb->is_active = 1;
+		}
+	}
+}
+
+static int mt_usb_wakeup_init(struct musb *musb)
+{
+	struct device_node *node;
+
+#ifdef CONFIG_MACH_MT6761
+	node = of_find_compatible_node(NULL, NULL,
+					"mediatek,mt6761-usb20");
+#else
+
+	node = of_find_compatible_node(NULL, NULL,
+					"mediatek,mt6765-usb20");
+#endif
+	if (!node) {
+		DBG(0, "map node failed\n");
+		return -ENODEV;
+	}
+
+	pericfg = syscon_regmap_lookup_by_phandle(node,
+					"pericfg");
+	if (IS_ERR(pericfg)) {
+		DBG(0, "fail to get pericfg regs\n");
+		return PTR_ERR(pericfg);
+	}
+
+	return 0;
+}
+#endif
+
 static u32 cable_mode = CABLE_MODE_NORMAL;
 #ifndef FPGA_PLATFORM
-struct clk *musb_clk;
-struct clk *musb_clk_top_sel;
-struct clk *musb_clk_univpll3_d4;
 static struct regulator *reg_vusb;
 static struct regulator *reg_va12;
 #endif
-
-void __iomem *usb_phy_base;
 
 #ifdef CONFIG_MTK_UART_USB_SWITCH
 static u32 port_mode = PORT_MODE_USB;
@@ -137,42 +636,41 @@ static u32 port_mode = PORT_MODE_USB;
 void __iomem *ap_gpio_base;
 #endif
 
-/*EP Fifo Config*/
+/* EP Fifo Config */
 static struct musb_fifo_cfg fifo_cfg[] __initdata = {
-	{.hw_ep_num = 1, .style = MUSB_FIFO_TX, .maxpacket = 512,
-		.ep_mode = EP_BULK, .mode = MUSB_BUF_DOUBLE},
-	{.hw_ep_num = 1, .style = MUSB_FIFO_RX, .maxpacket = 512,
-		.ep_mode = EP_BULK, .mode = MUSB_BUF_DOUBLE},
-	{.hw_ep_num = 2, .style = MUSB_FIFO_TX, .maxpacket = 512,
-		.ep_mode = EP_BULK, .mode = MUSB_BUF_DOUBLE},
-	{.hw_ep_num = 2, .style = MUSB_FIFO_RX, .maxpacket = 512,
-		.ep_mode = EP_BULK, .mode = MUSB_BUF_DOUBLE},
-	{.hw_ep_num = 3, .style = MUSB_FIFO_TX, .maxpacket = 512,
-		.ep_mode = EP_BULK, .mode = MUSB_BUF_DOUBLE},
-	{.hw_ep_num = 3, .style = MUSB_FIFO_RX, .maxpacket = 512,
-		.ep_mode = EP_BULK, .mode = MUSB_BUF_DOUBLE},
-	{.hw_ep_num = 4, .style = MUSB_FIFO_TX, .maxpacket = 512,
-		.ep_mode = EP_BULK, .mode = MUSB_BUF_DOUBLE},
-	{.hw_ep_num = 4, .style = MUSB_FIFO_RX, .maxpacket = 512,
-		.ep_mode = EP_BULK, .mode = MUSB_BUF_DOUBLE},
-	{.hw_ep_num = 5, .style = MUSB_FIFO_TX, .maxpacket = 512,
-		.ep_mode = EP_INT, .mode = MUSB_BUF_SINGLE},
-	{.hw_ep_num = 5, .style = MUSB_FIFO_RX, .maxpacket = 512,
-		.ep_mode = EP_INT, .mode = MUSB_BUF_SINGLE},
-	{.hw_ep_num = 6, .style = MUSB_FIFO_TX, .maxpacket = 512,
-		.ep_mode = EP_INT, .mode = MUSB_BUF_SINGLE},
-	{.hw_ep_num = 6, .style = MUSB_FIFO_RX, .maxpacket = 512,
-		.ep_mode = EP_INT, .mode = MUSB_BUF_SINGLE},
-	{.hw_ep_num = 7, .style = MUSB_FIFO_TX, .maxpacket = 512,
-		.ep_mode = EP_BULK, .mode = MUSB_BUF_SINGLE},
-	{.hw_ep_num = 7, .style = MUSB_FIFO_RX, .maxpacket = 512,
-		.ep_mode = EP_BULK, .mode = MUSB_BUF_SINGLE},
-	{.hw_ep_num = 8, .style = MUSB_FIFO_TX, .maxpacket = 512,
-		.ep_mode = EP_ISO, .mode = MUSB_BUF_DOUBLE},
-	{.hw_ep_num = 8, .style = MUSB_FIFO_RX, .maxpacket = 512,
-		.ep_mode = EP_ISO, .mode = MUSB_BUF_DOUBLE},
+	{.hw_ep_num = 1, .style = FIFO_TX, .maxpacket = 512,
+		.ep_mode = EP_BULK, .mode = BUF_DOUBLE},
+	{.hw_ep_num = 1, .style = FIFO_RX, .maxpacket = 512,
+		.ep_mode = EP_BULK, .mode = BUF_DOUBLE},
+	{.hw_ep_num = 2, .style = FIFO_TX, .maxpacket = 512,
+		.ep_mode = EP_BULK, .mode = BUF_DOUBLE},
+	{.hw_ep_num = 2, .style = FIFO_RX, .maxpacket = 512,
+		.ep_mode = EP_BULK, .mode = BUF_DOUBLE},
+	{.hw_ep_num = 3, .style = FIFO_TX, .maxpacket = 512,
+		.ep_mode = EP_BULK, .mode = BUF_DOUBLE},
+	{.hw_ep_num = 3, .style = FIFO_RX, .maxpacket = 512,
+		.ep_mode = EP_BULK, .mode = BUF_DOUBLE},
+	{.hw_ep_num = 4, .style = FIFO_TX, .maxpacket = 512,
+		.ep_mode = EP_BULK, .mode = BUF_DOUBLE},
+	{.hw_ep_num = 4, .style = FIFO_RX, .maxpacket = 512,
+		.ep_mode = EP_BULK, .mode = BUF_DOUBLE},
+	{.hw_ep_num = 5, .style = FIFO_TX, .maxpacket = 512,
+		.ep_mode = EP_INT, .mode = BUF_SINGLE},
+	{.hw_ep_num = 5, .style = FIFO_RX, .maxpacket = 512,
+		.ep_mode = EP_INT, .mode = BUF_SINGLE},
+	{.hw_ep_num = 6, .style = FIFO_TX, .maxpacket = 512,
+		.ep_mode = EP_INT, .mode = BUF_SINGLE},
+	{.hw_ep_num = 6, .style = FIFO_RX, .maxpacket = 512,
+		.ep_mode = EP_INT, .mode = BUF_SINGLE},
+	{.hw_ep_num = 7, .style = FIFO_TX, .maxpacket = 512,
+		.ep_mode = EP_BULK, .mode = BUF_SINGLE},
+	{.hw_ep_num = 7, .style = FIFO_RX, .maxpacket = 512,
+		.ep_mode = EP_BULK, .mode = BUF_SINGLE},
+	{.hw_ep_num = 8, .style = FIFO_TX, .maxpacket = 512,
+		.ep_mode = EP_ISO, .mode = BUF_DOUBLE},
+	{.hw_ep_num = 8, .style = FIFO_RX, .maxpacket = 512,
+		.ep_mode = EP_ISO, .mode = BUF_DOUBLE},
 };
-
 
 /*=======================================================================*/
 /* USB GADGET                                                     */
@@ -185,18 +683,17 @@ static const struct of_device_id apusb_of_ids[] = {
 
 MODULE_DEVICE_TABLE(of, apusb_of_ids);
 
-/*TabA7 Lite code for P201215-02072 samsung lpm animation in POWER_OFF_CHARGING by wenyaqi at 20201224 start*/
+/*HS03s for SR-AL5625-01-261 by wenyaqi at 20210428 start*/
 #ifndef HQ_FACTORY_BUILD	//ss version
 extern int hq_get_boot_mode(void);
 #endif
-/*TabA7 Lite code for P201215-02072 samsung lpm animation in POWER_OFF_CHARGING by wenyaqi at 20201224 end*/
-/*TabA7 Lite code for P210226-03264 by wenyaqi at 20210309 start*/
+/*hs04 code for SR-AL6398A-01-82 by wenyaqi at 20220705 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
 #ifdef CONFIG_TCPC_CLASS
 extern bool sink_to_src_flag;
 extern bool src_to_sink_flag;
-extern bool musb_is_host(void);
+extern bool ss_musb_is_host(void);
 #endif
-/*TabA7 Lite code for P210226-03264 by wenyaqi at 20210309 end*/
 static int mt_usb_psy_notifier(struct notifier_block *nb,
 				unsigned long event, void *ptr)
 {
@@ -207,70 +704,254 @@ static int mt_usb_psy_notifier(struct notifier_block *nb,
 
 		DBG(0, "psy=%s, event=%d", psy->desc->name, event);
 
-		/*TabA7 Lite code for P210226-03264 by wenyaqi at 20210309 start*/
-		#ifdef CONFIG_TCPC_CLASS
+#ifdef CONFIG_TCPC_CLASS
 		if (sink_to_src_flag && !src_to_sink_flag &&
-			!musb_is_host()) {
+			!ss_musb_is_host()) {
 			DBG(0, "device mode, typec sink->src, keep device\n");
 			return NOTIFY_DONE;
 		} else if (!sink_to_src_flag && src_to_sink_flag &&
-			musb_is_host()) {
+			ss_musb_is_host()) {
 			DBG(0, "host mode, typec src->sink, keep host\n");
 			return NOTIFY_DONE;
 		} else if (!sink_to_src_flag && src_to_sink_flag &&
-			!musb_is_host()) {
+			!ss_musb_is_host()) {
 			DBG(0, "device mode, typec src->sink, keep device\n");
 			return NOTIFY_DONE;
 		} else if (sink_to_src_flag && !src_to_sink_flag &&
-			musb_is_host()) {
+			ss_musb_is_host()) {
 			DBG(0, "host mode, typec sink->src, keep host\n");
 			return NOTIFY_DONE;
 		}
-		#endif
-		/*TabA7 Lite code for P210226-03264 by wenyaqi at 20210309 end*/
+#endif
 
-		/*TabA7 Lite code for P201215-02072 samsung lpm animation in POWER_OFF_CHARGING by wenyaqi at 20201224 start*/
-		#ifndef HQ_FACTORY_BUILD	//ss version
+#ifndef HQ_FACTORY_BUILD	//ss version
 		if (hq_get_boot_mode() == KERNEL_POWER_OFF_CHARGING_BOOT ||
 			hq_get_boot_mode() == LOW_POWER_OFF_CHARGING_BOOT) {
 			/* do nothing */
 			pr_notice("%s: do nothing in KPOC\n", __func__);
 		} else {
-#if defined(CONFIG_CABLE_TYPE_NOTIFIER)
-			if (usb_cable_connected(musb)) {
-				DBG(0, "musb->sec_cable_type=%d", musb->sec_cable_type);
-				if (!musb->is_host) {
-					switch (musb->sec_cable_type) {
-						case POWER_SUPPLY_USB_TYPE_SDP:
-							cable_type_notifier_set_attached_dev(CABLE_TYPE_USB_SDP);
-							break;
-						case POWER_SUPPLY_USB_TYPE_CDP:
-							cable_type_notifier_set_attached_dev(CABLE_TYPE_USB_CDP);
-							break;
-						default:
-							break;
-					}
-				}
-			} else
-				cable_type_notifier_set_attached_dev(CABLE_TYPE_NONE);
-#else
 			if (usb_cable_connected(musb))
 				mt_usb_connect();
 			else
 				mt_usb_disconnect();
-#endif
 		}
-		#else
+#else
 		if (usb_cable_connected(musb))
 			mt_usb_connect();
 		else
 			mt_usb_disconnect();
-		#endif
-		/*TabA7 Lite code for P201215-02072 samsung lpm animation in POWER_OFF_CHARGING by wenyaqi at 20201224 end*/
+#endif
+/*HS03s for SR-AL5625-01-261 by wenyaqi at 20210428 end*/
 	}
 	return NOTIFY_DONE;
 }
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+/*hs04 code for SR-AL6398A-01-82 by wenyaqi at 20220705 end*/
+#ifdef CONFIG_TCPC_CLASS
+extern bool sink_to_src_flag;
+extern bool src_to_sink_flag;
+extern bool ss_musb_is_host(void);
+#endif
+static int mt_usb_psy_notifier(struct notifier_block *nb,
+				unsigned long event, void *ptr)
+{
+	struct musb *musb = container_of(nb, struct musb, psy_nb);
+	struct power_supply *psy = ptr;
 
+	if (event == PSY_EVENT_PROP_CHANGED && psy == musb->usb_psy) {
+
+		DBG(0, "psy=%s, event=%d", psy->desc->name, event);
+
+#ifdef CONFIG_TCPC_CLASS
+		if (sink_to_src_flag && !src_to_sink_flag &&
+			!ss_musb_is_host()) {
+			DBG(0, "device mode, typec sink->src, keep device\n");
+			return NOTIFY_DONE;
+		} else if (!sink_to_src_flag && src_to_sink_flag &&
+			ss_musb_is_host()) {
+			DBG(0, "host mode, typec src->sink, keep host\n");
+			return NOTIFY_DONE;
+		} else if (!sink_to_src_flag && src_to_sink_flag &&
+			!ss_musb_is_host()) {
+			DBG(0, "device mode, typec src->sink, keep device\n");
+			return NOTIFY_DONE;
+		} else if (sink_to_src_flag && !src_to_sink_flag &&
+			ss_musb_is_host()) {
+			DBG(0, "host mode, typec sink->src, keep host\n");
+			return NOTIFY_DONE;
+		}
+#endif
+
+#ifndef HQ_FACTORY_BUILD	//ss version
+		if (hq_get_boot_mode() == KERNEL_POWER_OFF_CHARGING_BOOT ||
+			hq_get_boot_mode() == LOW_POWER_OFF_CHARGING_BOOT) {
+			/* do nothing */
+			pr_notice("%s: do nothing in KPOC\n", __func__);
+		} else {
+			if (usb_cable_connected(musb))
+				mt_usb_connect();
+			else
+				mt_usb_disconnect();
+		}
+#else
+		if (usb_cable_connected(musb))
+			mt_usb_connect();
+		else
+			mt_usb_disconnect();
+#endif
+/*HS03s for SR-AL5625-01-261 by wenyaqi at 20210428 end*/
+	}
+	return NOTIFY_DONE;
+}
+#endif
+
+#ifdef FPGA_PLATFORM
+bool usb_enable_clock(bool enable)
+{
+	return true;
+}
+EXPORT_SYMBOL(usb_enable_clock);
+
+bool usb_prepare_clock(bool enable)
+{
+	return true;
+}
+EXPORT_SYMBOL(usb_prepare_clock);
+
+void usb_prepare_enable_clock(bool enable)
+{
+}
+EXPORT_SYMBOL(usb_prepare_enable_clock);
+#else
+void usb_prepare_enable_clock(bool enable)
+{
+	if (enable) {
+		usb_prepare_clock(true);
+		usb_enable_clock(true);
+	} else {
+		usb_enable_clock(false);
+		usb_prepare_clock(false);
+	}
+}
+EXPORT_SYMBOL(usb_prepare_enable_clock);
+
+DEFINE_MUTEX(prepare_lock);
+static atomic_t clk_prepare_cnt = ATOMIC_INIT(0);
+
+bool usb_prepare_clock(bool enable)
+{
+	int before_cnt = 0;
+	before_cnt = atomic_read(&clk_prepare_cnt);
+
+	mutex_lock(&prepare_lock);
+
+	if (IS_ERR_OR_NULL(glue->musb_clk) ||
+			IS_ERR_OR_NULL(glue->musb_clk_top_sel) ||
+			IS_ERR_OR_NULL(glue->musb_clk_univpll3_d4)) {
+		DBG(0, "clk not ready\n");
+		mutex_unlock(&prepare_lock);
+		return 0;
+	}
+
+	if (enable) {
+		if (clk_prepare(glue->musb_clk_top_sel)) {
+			DBG(1, "musb_clk_top_sel prepare fail\n");
+		} else {
+			if (clk_set_parent(glue->musb_clk_top_sel,
+						glue->musb_clk_univpll3_d4))
+				DBG(1, "musb_clk_top_sel set_parent fail\n");
+		}
+		if (clk_prepare(glue->musb_clk))
+			DBG(1, "musb_clk prepare fail\n");
+
+		atomic_inc(&clk_prepare_cnt);
+	} else {
+		clk_unprepare(glue->musb_clk_top_sel);
+		clk_unprepare(glue->musb_clk);
+
+		atomic_dec(&clk_prepare_cnt);
+	}
+
+	mutex_unlock(&prepare_lock);
+
+	DBG(1, "enable(%d), usb prepare_cnt, before(%d), after(%d)\n",
+		enable, before_cnt, atomic_read(&clk_prepare_cnt));
+
+#ifdef CONFIG_MTK_AEE_FEATURE
+	if (atomic_read(&clk_prepare_cnt) < 0)
+		aee_kernel_warning("usb20", "usb clock prepare_cnt error\n");
+#endif
+
+	return 1;
+}
+EXPORT_SYMBOL(usb_prepare_clock);
+
+static DEFINE_SPINLOCK(musb_reg_clock_lock);
+
+bool usb_enable_clock(bool enable)
+{
+	static int count;
+	static int real_enable = 0, real_disable;
+	static int virt_enable = 0, virt_disable;
+	unsigned long flags;
+
+	DBG(1, "enable(%d),count(%d),<%d,%d,%d,%d>\n",
+	    enable, count, virt_enable, virt_disable,
+	    real_enable, real_disable);
+
+	spin_lock_irqsave(&musb_reg_clock_lock, flags);
+
+	if (unlikely(atomic_read(&clk_prepare_cnt) <= 0)) {
+		DBG_LIMIT(1, "clock not prepare");
+		goto exit;
+	}
+
+	if (enable && count == 0) {
+		if (clk_enable(glue->musb_clk_top_sel)) {
+			DBG(0, "musb_clk_top_sel enable fail\n");
+			goto exit;
+		}
+
+		if (clk_enable(glue->musb_clk)) {
+			DBG(0, "musb_clk enable fail\n");
+			clk_disable(glue->musb_clk_top_sel);
+			goto exit;
+		}
+
+		usb_hal_dpidle_request(USB_DPIDLE_FORBIDDEN);
+		real_enable++;
+
+	} else if (!enable && count == 1) {
+		clk_disable(glue->musb_clk);
+		clk_disable(glue->musb_clk_top_sel);
+
+		usb_hal_dpidle_request(USB_DPIDLE_ALLOWED);
+		real_disable++;
+	}
+
+	if (enable)
+		count++;
+	else
+		count = (count == 0) ? 0 : (count - 1);
+
+exit:
+	if (enable)
+		virt_enable++;
+	else
+		virt_disable++;
+
+	spin_unlock_irqrestore(&musb_reg_clock_lock, flags);
+
+	DBG(1, "enable(%d),count(%d), <%d,%d,%d,%d>\n",
+	    enable, count, virt_enable, virt_disable,
+	    real_enable, real_disable);
+	return 1;
+}
+EXPORT_SYMBOL(usb_enable_clock);
+#endif
+
+#if !defined(CONFIG_EXTCON_MTK_USB)
 static int mt_usb_psy_init(struct musb *musb)
 {
 	int ret = 0;
@@ -281,14 +962,23 @@ static int mt_usb_psy_init(struct musb *musb)
 		DBG(0, "couldn't get usb_psy\n");
 		return -EINVAL;
 	}
-
+/*hs04 code for SR-AL6398A-01-82 by wenyaqi at 20220705 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
 	musb->psy_nb.notifier_call = mt_usb_psy_notifier;
 	ret = power_supply_reg_notifier(&musb->psy_nb);
 	if (ret)
 		DBG(0, "failed to reg notifier: %d\n", ret);
-
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+/*hs04 code for SR-AL6398A-01-82 by wenyaqi at 20220705 end*/
+	musb->psy_nb.notifier_call = mt_usb_psy_notifier;
+	ret = power_supply_reg_notifier(&musb->psy_nb);
+	if (ret)
+		DBG(0, "failed to reg notifier: %d\n", ret);
+#endif
 	return ret;
 }
+#endif
 
 static struct delayed_work idle_work;
 
@@ -448,10 +1138,10 @@ static void mt_usb_enable(struct musb *musb)
 	usb_enable_clock(true);
 
 	mdelay(10);
-	#ifdef CONFIG_MTK_UART_USB_SWITCH
+#ifdef CONFIG_MTK_UART_USB_SWITCH
 	if (!is_check) {
-		usb_phy_check_in_uart_mode();
-	    is_check = 1;
+		in_uart_mode = usb_phy_check_in_uart_mode();
+		is_check = 1;
 	}
 	#endif
 
@@ -460,8 +1150,13 @@ static void mt_usb_enable(struct musb *musb)
 	/* only for mt6761 */
 	usb_sram_setup();
 #endif
+	/*  hs04 code for BSPAL6398A-41 by shixuanxuan at 20221206 start */
+	#ifdef CONFIG_HQ_PROJECT_HS04
+	USBPHY_SET32(0x68, (0x1 << 18));
+	mdelay(100);
+	#endif
+	/*  hs04 code for BSPAL6398A-41 by shixuanxuan at 20221206 end */
 	usb_phy_recover(musb);
-
 	/* update musb->power & mtk_usb_power in the same time */
 	musb->power = true;
 	mtk_usb_power = true;
@@ -487,8 +1182,6 @@ static void mt_usb_disable(struct musb *musb)
 	    real_enable, real_disable);
 	if (musb->power == false)
 		return;
-
-	usb_phy_savecurrent();
 
 	usb_enable_clock(false);
 	/* clock will unprepare when leave here */
@@ -524,7 +1217,7 @@ bool mt_usb_is_device(void)
 	}
 #endif
 #ifdef CONFIG_USB_MTK_OTG
-	return !usb20_check_vbus_on();
+	return !mtk_musb->is_host;
 #else
 	return true;
 #endif
@@ -583,6 +1276,22 @@ static bool musb_hal_is_vbus_exist(void)
 }
 
 /* be aware this could not be used in non-sleep context */
+#if defined(CONFIG_EXTCON_MTK_USB) && IS_ENABLED(CONFIG_USB_NOTIFY_LAYER)
+bool usb_cable_connected(void)
+{
+	struct otg_notify *usb_notify;
+	int usb_mode = 0;
+
+	usb_notify = get_otg_notify();
+	usb_mode = get_usb_mode(usb_notify);
+	pr_info("usb: %s: %d\n", __func__, usb_mode);
+	if (usb_mode == NOTIFY_PERIPHERAL_MODE)
+		return true;
+	else
+		return false;
+
+}
+#else
 bool usb_cable_connected(struct musb *musb)
 {
 	struct power_supply *psy;
@@ -614,17 +1323,13 @@ bool usb_cable_connected(struct musb *musb)
 
 	DBG(0, "online=%d, type=%d\n", pval.intval, tval.intval);
 
-#if defined(CONFIG_CABLE_TYPE_NOTIFIER)
-	musb->sec_cable_type = tval.intval;
-#endif
-
 	if (pval.intval && (tval.intval == POWER_SUPPLY_USB_TYPE_SDP ||
-			tval.intval == POWER_SUPPLY_USB_TYPE_CDP)) {
+			tval.intval == POWER_SUPPLY_USB_TYPE_CDP))
 		return true;
-	} else {
+	else
 		return false;
-	}
 }
+#endif
 
 static bool cmode_effect_on(void)
 {
@@ -643,7 +1348,7 @@ static bool cmode_effect_on(void)
 void do_connection_work(struct work_struct *data)
 {
 	unsigned long flags = 0;
-	int usb_clk_state = NO_CHANGE;
+	int usb_clk_state = NO_CHANGE, phy_mode = -1;
 	bool usb_on, usb_connected;
 	struct mt_usb_work *work =
 		container_of(data, struct mt_usb_work, dwork.work);
@@ -656,8 +1361,11 @@ void do_connection_work(struct work_struct *data)
 	usb_prepare_clock(true);
 
 	/* be aware this could not be used in non-sleep context */
+#if defined(CONFIG_EXTCON_MTK_USB) && IS_ENABLED(CONFIG_USB_NOTIFY_LAYER)
+	usb_connected = usb_cable_connected();
+#else
 	usb_connected = usb_cable_connected(mtk_musb);
-
+#endif
 	/* additional check operation here */
 	if (musb_force_on)
 		usb_on = true;
@@ -665,17 +1373,9 @@ void do_connection_work(struct work_struct *data)
 		usb_on = usb_connected;
 #if defined(CONFIG_CABLE_TYPE_NOTIFIER)
 		if (!musb_is_host() && usb_on) {
-			DBG(0, "mtk_musb->sec_cable_type=%d", mtk_musb->sec_cable_type);
-			switch (mtk_musb->sec_cable_type) {
-				case POWER_SUPPLY_USB_TYPE_SDP:
-					cable_type_notifier_set_attached_dev(CABLE_TYPE_USB_SDP);
-					break;
-				case POWER_SUPPLY_USB_TYPE_CDP:
-					cable_type_notifier_set_attached_dev(CABLE_TYPE_USB_CDP);
-					break;
-				default:
-					break;
-			}
+			cable_type_notifier_set_attached_dev(CABLE_TYPE_USB_SDP);
+			/* skip usb_on to enable usb by cable_type_notifier */
+			goto skip;
 		}
 #endif
 	} else
@@ -685,7 +1385,6 @@ void do_connection_work(struct work_struct *data)
 	if (cmode_effect_on())
 		usb_on = false;
 	/* additional check operation done */
-
 	spin_lock_irqsave(&mtk_musb->lock, flags);
 
 	if (mtk_musb->is_host) {
@@ -712,8 +1411,9 @@ void do_connection_work(struct work_struct *data)
 		/* note this already put SOFTCON */
 		musb_start(mtk_musb);
 		usb_clk_state = OFF_TO_ON;
-
+		phy_mode = PHY_MODE_USB_DEVICE;
 	} else if (mtk_musb->power && (usb_on == false)) {
+		phy_mode = PHY_MODE_INVALID;
 		/* disable usb */
 		musb_stop(mtk_musb);
 		if (mtk_musb->usb_lock->active) {
@@ -728,7 +1428,20 @@ void do_connection_work(struct work_struct *data)
 				usb_on, mtk_musb->power);
 exit:
 	spin_unlock_irqrestore(&mtk_musb->lock, flags);
-
+/* hs04_T code for AL6398ADEU-225 by shixuanxuan at 20230113 start */
+#ifdef CONFIG_PHY_MTK_TPHY
+	/* set PHY mode after spinlock released */
+	/*
+	if(phy_mode == PHY_MODE_USB_DEVICE)
+		phy_set_mode(glue->phy, PHY_MODE_USB_DEVICE);
+	else if (phy_mode == PHY_MODE_INVALID)
+		phy_set_mode(glue->phy, PHY_MODE_INVALID);
+	*/
+#endif
+/* hs04_T code for AL6398ADEU-225 by shixuanxuan at 20230113 end */
+#if defined(CONFIG_CABLE_TYPE_NOTIFIER)
+skip:
+#endif
 	if (usb_clk_state == ON_TO_OFF) {
 		/* clock on -> of: clk_prepare_cnt -2 */
 		usb_prepare_clock(false);
@@ -763,22 +1476,49 @@ static void issue_connection_work(int ops)
 	queue_delayed_work(mtk_musb->st_wq, &work->dwork, 0);
 }
 
+void mtk_usb_connect(void)
+{
+	DBG(0, "[MUSB] USB connect work\n");
+	issue_connection_work(CONNECTION_OPS_CONN);
+}
+EXPORT_SYMBOL(mtk_usb_connect);
+
 void mt_usb_connect(void)
 {
 	DBG(0, "[MUSB] USB connect\n");
+#if defined(CONFIG_CABLE_TYPE_NOTIFIER) && !defined(CONFIG_EXTCON_MTK_USB)
+	cable_type_notifier_set_attached_dev(CABLE_TYPE_USB_SDP);
+#else
 	issue_connection_work(CONNECTION_OPS_CONN);
+#endif
 }
+EXPORT_SYMBOL(mt_usb_connect);
+
+void mtk_usb_disconnect(void)
+{
+	DBG(0, "[MUSB] USB disconnect work\n");
+	issue_connection_work(CONNECTION_OPS_DISC);
+}
+EXPORT_SYMBOL(mtk_usb_disconnect);
 
 void mt_usb_disconnect(void)
 {
 	DBG(0, "[MUSB] USB disconnect\n");
+#if defined(CONFIG_CABLE_TYPE_NOTIFIER) && !defined(CONFIG_EXTCON_MTK_USB)
+	cable_type_notifier_set_attached_dev(CABLE_TYPE_NONE);
+#else
 	issue_connection_work(CONNECTION_OPS_DISC);
+#endif
 }
 
 void mt_usb_dev_disconnect(void)
 {
 	DBG(0, "[MUSB] USB disconnect\n");
+#if defined(CONFIG_CABLE_TYPE_NOTIFIER) && !defined(CONFIG_EXTCON_MTK_USB)
+	cable_type_notifier_set_attached_dev(CABLE_TYPE_NONE);
+#else
 	issue_connection_work(CONNECTION_OPS_DISC);
+#endif
 }
 
 void mt_usb_reconnect(void)
@@ -786,6 +1526,7 @@ void mt_usb_reconnect(void)
 	DBG(0, "[MUSB] USB reconnect\n");
 	issue_connection_work(CONNECTION_OPS_CHECK);
 }
+EXPORT_SYMBOL(mt_usb_reconnect);
 
 /* build time force on */
 #if defined(CONFIG_FPGA_EARLY_PORTING) ||\
@@ -826,6 +1567,7 @@ static void do_usb20_test_connect_work(struct work_struct *work)
 
 	test_connected = !test_connected;
 }
+
 void mt_usb_connect_test(int start)
 {
 	static struct wakeup_source *dev_test_wakelock;
@@ -848,8 +1590,6 @@ void mt_usb_connect_test(int start)
 		__pm_relax(dev_test_wakelock);
 	}
 }
-
-
 
 void musb_platform_reset(struct musb *musb)
 {
@@ -875,11 +1615,13 @@ void musb_platform_reset(struct musb *musb)
 	swrst |= (MUSB_SWRST_DISUSBRESET | MUSB_SWRST_SWRST);
 	musb_writew(mbase, MUSB_SWRST, swrst);
 }
+EXPORT_SYMBOL(musb_platform_reset);
 
 void musb_sync_with_bat(struct musb *musb, int usb_state)
 {
 	DBG(1, "BATTERY_SetUSBState, state=%d\n", usb_state);
 }
+EXPORT_SYMBOL(musb_sync_with_bat);
 
 /*-------------------------------------------------------------------------*/
 static irqreturn_t generic_interrupt(int irq, void *__hci)
@@ -918,7 +1660,6 @@ static irqreturn_t generic_interrupt(int irq, void *__hci)
 	if (musb->int_usb || musb->int_tx || musb->int_rx)
 		retval = musb_interrupt(musb);
 #endif
-
 
 	return retval;
 }
@@ -966,54 +1707,6 @@ static irqreturn_t mt_usb_interrupt(int irq, void *dev_id)
 
 }
 
-/*--FOR INSTANT POWER ON USAGE --*/
-static ssize_t cmode_show(struct device *dev,
-				struct device_attribute *attr, char *buf)
-{
-	if (!dev) {
-		DBG(0, "dev is null!!\n");
-		return 0;
-	}
-	return scnprintf(buf, PAGE_SIZE, "%d\n", cable_mode);
-}
-
-static ssize_t cmode_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t count)
-{
-	unsigned int cmode;
-	long tmp_val;
-
-	if (!dev) {
-		DBG(0, "dev is null!!\n");
-		return count;
-	/* } else if (1 == sscanf(buf, "%d", &cmode)) { */
-	} else if (kstrtol(buf, 10, (long *)&tmp_val) == 0) {
-		if (mtk_musb) {
-			if (down_interruptible(&mtk_musb->musb_lock))
-				DBG(0,
-				"USB20: %s: busy, Couldn't get power_clock_lock\n",
-				__func__);
-		}
-		cmode = tmp_val;
-		DBG(0, "cmode=%d, cable_mode=%d\n", cmode, cable_mode);
-		if (cmode >= CABLE_MODE_MAX)
-			cmode = CABLE_MODE_NORMAL;
-
-		if (cable_mode != cmode) {
-			cable_mode = cmode;
-			mt_usb_reconnect();
-			/* let conection work do its job */
-			msleep(50);
-		}
-		if (mtk_musb)
-			up(&mtk_musb->musb_lock);
-	}
-	return count;
-}
-
-DEVICE_ATTR_RW(cmode);
-
 static bool saving_mode;
 
 static ssize_t saving_show(struct device *dev,
@@ -1051,6 +1744,7 @@ bool is_saving_mode(void)
 	DBG(0, "%d\n", saving_mode);
 	return saving_mode;
 }
+EXPORT_SYMBOL(is_saving_mode);
 
 void usb_dump_debug_register(void)
 {
@@ -1096,6 +1790,8 @@ static void uart_usb_switch_dump_register(void)
 {
 	usb_enable_clock(true);
 
+#ifdef CONFIG_MTK_MUSB_PHY
+	/* Todo: should phase out: not supported by tphy */
 	DBG(0, "[MUSB]addr: 0x68, value: %x\n"
 			"[MUSB]addr: 0x6C, value: %x\n"
 			"[MUSB]addr: 0x20, value: %x\n"
@@ -1104,6 +1800,7 @@ static void uart_usb_switch_dump_register(void)
 			USBPHY_READ32(0x6C),
 			USBPHY_READ32(0x20),
 			USBPHY_READ32(0x18));
+#endif
 
 	usb_enable_clock(false);
 	DBG(0, "[MUSB]GPIO_SEL=%x\n", GET_GPIO_SEL_VAL(readl(ap_gpio_base)));
@@ -1119,7 +1816,8 @@ static ssize_t portmode_show(struct device *dev,
 	}
 	usb_prepare_enable_clock(true);
 
-	if (usb_phy_check_in_uart_mode())
+	in_uart_mode = usb_phy_check_in_uart_mode();
+	if (in_uart_mode)
 		port_mode = PORT_MODE_UART;
 	else
 		port_mode = PORT_MODE_USB;
@@ -1141,6 +1839,10 @@ static ssize_t portmode_store(struct device *dev,
 				     const char *buf, size_t count)
 {
 	unsigned int portmode;
+
+	in_uart_mode = usb_phy_check_in_uart_mode();
+	if (in_uart_mode)
+		port_mode = PORT_MODE_UART;
 
 	if (!dev) {
 		DBG(0, "dev is null!!\n");
@@ -1173,24 +1875,6 @@ static ssize_t portmode_store(struct device *dev,
 
 DEVICE_ATTR_RW(portmode);
 
-static ssize_t uartpath_show(struct device *dev,
-					struct device_attribute *attr,
-					char *buf)
-{
-	u32 var;
-
-	if (!dev) {
-		DBG(0, "dev is null!!\n");
-		return 0;
-	}
-
-	var = GET_GPIO_SEL_VAL(readl(ap_gpio_base));
-	DBG(0, "[MUSB]GPIO SELECT=%x\n", var);
-
-	return scnprintf(buf, PAGE_SIZE, "%x\n", var);
-}
-
-DEVICE_ATTR_RW(uartpath);
 #endif
 
 #ifndef FPGA_PLATFORM
@@ -1198,7 +1882,6 @@ static struct device_attribute *mt_usb_attributes[] = {
 	&dev_attr_saving,
 #ifdef CONFIG_MTK_UART_USB_SWITCH
 	&dev_attr_portmode,
-	&dev_attr_uartpath,
 #endif
 	NULL
 };
@@ -1213,6 +1896,7 @@ static int init_sysfs(struct device *dev)
 		if (rc)
 			goto out_unreg;
 	}
+
 	return 0;
 
 out_unreg:
@@ -1334,11 +2018,9 @@ static int usb_i2c_probe(struct i2c_client *client,
 	u32 val = 0;
 	/* if i2c probe before musb prob, this would cause KE */
 	/* base = (unsigned long)((unsigned long)mtk_musb->xceiv->io_priv); */
-	base = usb_phy_base;
 	DBG(0, "[MUSB]%, start, base:%p\n", __func__, base);
 
 	usb_i2c_client = client;
-
 
 	/* disable usb mac suspend */
 	val = musb_readl(base, 0x868);
@@ -1601,14 +2283,10 @@ static int __init mt_usb_init(struct musb *musb)
 
 	DBG(1, "%s\n", __func__);
 
-	usb_phy_generic_register();
-	musb->xceiv = usb_get_phy(USB_PHY_TYPE_USB2);
-
-	if (IS_ERR_OR_NULL(musb->xceiv)) {
-		DBG(0, "[MUSB] usb_get_phy error!!\n");
-		return -EPROBE_DEFER;
-	}
-
+#ifdef CONFIG_PHY_MTK_TPHY
+	musb->phy = glue->phy;
+	musb->xceiv = glue->xceiv;
+#endif
 	musb->dma_irq = (int)SHARE_IRQ;
 	musb->fifo_cfg = fifo_cfg;
 	musb->fifo_cfg_size = ARRAY_SIZE(fifo_cfg);
@@ -1616,12 +2294,31 @@ static int __init mt_usb_init(struct musb *musb)
 	musb->power = false;
 	musb->is_host = false;
 	musb->fifo_size = 8 * 1024;
-#ifndef FPGA_PLATFORM
-	musb->usb_rev6_setting = usb_rev6_setting;
-#endif
-
 	musb->usb_lock = wakeup_source_register(NULL, "USB suspend lock");
 
+#ifdef CONFIG_PHY_MTK_TPHY
+	ret = phy_init(glue->phy);
+	if (ret)
+		goto err_phy_init;
+#endif
+
+#ifdef CONFIG_MTK_UART_USB_SWITCH
+	in_uart_mode = usb_phy_check_in_uart_mode();
+	if (in_uart_mode) {
+		glue->phy_mode = PHY_MODE_UART;
+		DBG(0, "At UART mode. Switch to USB is not support\n");
+	}
+#endif
+
+#ifdef CONFIG_PHY_MTK_TPHY
+	phy_set_mode(glue->phy, glue->phy_mode);
+
+	if (glue->phy_mode != PHY_MODE_UART)
+		ret = phy_power_on(glue->phy);
+
+	if (ret)
+		goto err_phy_power_on;
+#endif
 #ifndef FPGA_PLATFORM
 	reg_vusb = regulator_get(musb->controller, "vusb");
 	if (!IS_ERR(reg_vusb)) {
@@ -1657,7 +2354,7 @@ static int __init mt_usb_init(struct musb *musb)
 
 #endif
 
-	ret = device_create_file(musb->controller, &dev_attr_cmode);
+	/* ret = device_create_file(musb->controller, &dev_attr_cmode); */
 
 	/* mt_usb_enable(musb); */
 
@@ -1690,13 +2387,35 @@ static int __init mt_usb_init(struct musb *musb)
 #endif
 #ifdef CONFIG_USB_MTK_OTG
 	mt_usb_otg_init(musb);
+	/* enable host suspend mode */
+	mt_usb_wakeup_init(musb);
+#ifdef CONFIG_USB_HOST_SAMSUNG_FEATURE
+	musb->host_suspend = false;
+#else
+	musb->host_suspend = true;
+#endif
 #endif
 #ifdef CONFIG_MACH_MT6761
 	/* only for mt6761 */
 	usb_sram_init();
 #endif
-	mt_usb_psy_init(musb);
+
 	return 0;
+
+#ifdef CONFIG_PHY_MTK_TPHY
+err_phy_power_on:
+	phy_exit(glue->phy);
+err_phy_init:
+#endif
+/*hs04 code for SR-AL6398A-01-82 by wenyaqi at 20220705 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
+	mt_usb_psy_init(musb);
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+	mt_usb_psy_init(musb);
+#endif
+/*hs04 code for SR-AL6398A-01-82 by wenyaqi at 20220705 end*/
+	return ret;
 }
 
 static int mt_usb_exit(struct musb *musb)
@@ -1717,6 +2436,12 @@ static int mt_usb_exit(struct musb *musb)
 #ifdef CONFIG_USB_MTK_OTG
 	mt_usb_otg_exit(musb);
 #endif
+
+#ifdef CONFIG_PHY_MTK_TPHY
+	phy_power_off(glue->phy);
+	phy_exit(glue->phy);
+#endif
+
 	return 0;
 }
 
@@ -1755,6 +2480,9 @@ static const struct musb_platform_ops mt_usb_ops = {
 	.disable_clk =  mt_usb_disable_clk,
 	.prepare_clk = mt_usb_prepare_clk,
 	.unprepare_clk = mt_usb_unprepare_clk,
+#ifdef CONFIG_USB_MTK_OTG
+	.enable_wakeup = mt_usb_wakeup,
+#endif
 };
 
 #ifdef CONFIG_MTK_MUSB_DRV_36BIT
@@ -1763,15 +2491,20 @@ static u64 mt_usb_dmamask = DMA_BIT_MASK(36);
 static u64 mt_usb_dmamask = DMA_BIT_MASK(32);
 #endif
 
+struct mt_usb_glue *glue;
+EXPORT_SYMBOL(glue);
+
 static int mt_usb_probe(struct platform_device *pdev)
 {
 	struct musb_hdrc_platform_data *pdata = pdev->dev.platform_data;
-	struct platform_device *musb;
-	struct mt_usb_glue *glue;
+	struct platform_device *musb_pdev;
 	struct musb_hdrc_config *config;
 	struct device_node *np = pdev->dev.of_node;
 #ifdef CONFIG_MTK_UART_USB_SWITCH
 	struct device_node *ap_gpio_node = NULL;
+#endif
+#ifdef CONFIG_MTK_MUSB_DUAL_ROLE
+	struct otg_switch_mtk *otg_sx;
 #endif
 	int ret = -ENOMEM;
 
@@ -1779,13 +2512,34 @@ static int mt_usb_probe(struct platform_device *pdev)
 	if (!glue)
 		goto err0;
 
-	musb = platform_device_alloc("musb-hdrc", PLATFORM_DEVID_NONE);
-	if (!musb) {
-		dev_notice(&pdev->dev, "failed to allocate musb device\n");
+	/* Device name is required */
+	musb_pdev = platform_device_alloc("musb-hdrc", PLATFORM_DEVID_NONE);
+	if (!musb_pdev) {
+		dev_notice(&pdev->dev, "failed to allocate musb pdev\n");
 		goto err1;
 	}
 
-	usb_phy_base = of_iomap(np, 1);
+#ifdef CONFIG_PHY_MTK_TPHY
+	glue->phy = devm_of_phy_get_by_index(&pdev->dev, np, 0);
+	if (IS_ERR(glue->phy)) {
+		dev_err(&pdev->dev, "fail to getting phy %ld\n",
+			PTR_ERR(glue->phy));
+		return PTR_ERR(glue->phy);
+	}
+
+	glue->usb_phy = usb_phy_generic_register();
+	if (IS_ERR(glue->usb_phy)) {
+		dev_err(&pdev->dev, "fail to registering usb-phy %ld\n",
+			PTR_ERR(glue->usb_phy));
+		return PTR_ERR(glue->usb_phy);
+	}
+	glue->xceiv = devm_usb_get_phy(&pdev->dev, USB_PHY_TYPE_USB2);
+	if (IS_ERR(glue->xceiv)) {
+		dev_err(&pdev->dev, "fail to getting usb-phy %d\n", ret);
+		ret = PTR_ERR(glue->xceiv);
+		goto err_unregister_usb_phy;
+	}
+#endif
 	pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
 	if (!pdata) {
 		dev_notice(&pdev->dev, "failed to allocate musb platform data\n");
@@ -1799,11 +2553,6 @@ static int mt_usb_probe(struct platform_device *pdev)
 		 */
 		goto err2;
 	}
-#ifdef CONFIG_USB_MTK_OTG
-	pdata->mode = MUSB_OTG;
-#else
-	of_property_read_u32(np, "mode", (u32 *) &pdata->mode);
-#endif
 
 #ifdef CONFIG_MTK_UART_USB_SWITCH
 	ap_gpio_node =
@@ -1825,16 +2574,16 @@ static int mt_usb_probe(struct platform_device *pdev)
 
 	pdata->config = config;
 
-	musb->dev.parent = &pdev->dev;
-	musb->dev.dma_mask = &mt_usb_dmamask;
-	musb->dev.coherent_dma_mask = mt_usb_dmamask;
+	musb_pdev->dev.parent = &pdev->dev;
+	musb_pdev->dev.dma_mask = &mt_usb_dmamask;
+	musb_pdev->dev.coherent_dma_mask = mt_usb_dmamask;
 
 	pdev->dev.dma_mask = &mt_usb_dmamask;
 	pdev->dev.coherent_dma_mask = mt_usb_dmamask;
-	arch_setup_dma_ops(&musb->dev, 0, mt_usb_dmamask, NULL, 0);
+	arch_setup_dma_ops(&musb_pdev->dev, 0, mt_usb_dmamask, NULL, 0);
 
 	glue->dev = &pdev->dev;
-	glue->musb = musb;
+	glue->musb_pdev = musb_pdev;
 
 	pdata->platform_ops = &mt_usb_ops;
 
@@ -1854,23 +2603,10 @@ static int mt_usb_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, glue);
 
-	ret = platform_device_add_resources(musb,
+	ret = platform_device_add_resources(musb_pdev,
 				pdev->resource, pdev->num_resources);
 	if (ret) {
 		dev_notice(&pdev->dev, "failed to add resources\n");
-		goto err2;
-	}
-
-	ret = platform_device_add_data(musb, pdata, sizeof(*pdata));
-	if (ret) {
-		dev_notice(&pdev->dev, "failed to add platform_data\n");
-		goto err2;
-	}
-
-	ret = platform_device_add(musb);
-
-	if (ret) {
-		dev_notice(&pdev->dev, "failed to register musb device\n");
 		goto err2;
 	}
 
@@ -1879,6 +2615,7 @@ static int mt_usb_probe(struct platform_device *pdev)
 /*huaqin add MTK patch for cts test audio usb record fail by limengxia at 2021/3/12 start*/
 	isoc_ep_gpd_count = 550; /* 30 ms for HS, at most (30*8 + 1) */
 /*huaqin add MTK patch for cts test audio usb record fail by limengxia at 2021/3/12 end*/
+
 	mtk_host_qmu_force_isoc_restart = 0;
 #endif
 #ifndef FPGA_PLATFORM
@@ -1890,42 +2627,89 @@ static int mt_usb_probe(struct platform_device *pdev)
 
 	INIT_DELAYED_WORK(&idle_work, do_idle_work);
 
-	DBG(0, "keep musb->power & mtk_usb_power in the samae value\n");
+	DBG(0, "keep musb->power & mtk_usb_power in the same value\n");
 	mtk_usb_power = false;
 
 #ifndef FPGA_PLATFORM
-	musb_clk = devm_clk_get(&pdev->dev, "usb0");
-	if (IS_ERR(musb_clk)) {
+	glue->musb_clk = devm_clk_get(&pdev->dev, "usb0");
+	if (IS_ERR(glue->musb_clk)) {
 		DBG(0, "cannot get musb_clk clock\n");
 		goto err2;
 	}
 
-	musb_clk_top_sel = devm_clk_get(&pdev->dev, "usb0_clk_top_sel");
-	if (IS_ERR(musb_clk_top_sel)) {
+	glue->musb_clk_top_sel = devm_clk_get(&pdev->dev, "usb0_clk_top_sel");
+	if (IS_ERR(glue->musb_clk_top_sel)) {
 		DBG(0, "cannot get musb_clk_top_sel clock\n");
 		goto err2;
 	}
 
-	musb_clk_univpll3_d4 = devm_clk_get(&pdev->dev, "usb0_clk_univpll3_d4");
-	if (IS_ERR(musb_clk_univpll3_d4)) {
+	glue->musb_clk_univpll3_d4 =
+		devm_clk_get(&pdev->dev, "usb0_clk_univpll3_d4");
+	if (IS_ERR(glue->musb_clk_univpll3_d4)) {
 		DBG(0, "cannot get musb_clk_univpll3_d4 clock\n");
 		goto err2;
 	}
-
-#ifdef CONFIG_DEBUG_FS
-	if (usb20_phy_init_debugfs()) {
-		DBG(0, "usb20_phy_init_debugfs fail!\n");
-		goto err2;
-	}
-#endif
 
 	if (init_sysfs(&pdev->dev)) {
 		DBG(0, "failed to init_sysfs\n");
 		goto err2;
 	}
 
-
+#ifdef CONFIG_USB_MTK_OTG
+	pdata->dr_mode = usb_get_dr_mode(&pdev->dev);
+#else
+	of_property_read_u32(np, "dr_mode", (u32 *) &pdata->dr_mode);
 #endif
+
+#ifdef CONFIG_PHY_MTK_TPHY
+	switch (pdata->dr_mode) {
+	case USB_DR_MODE_HOST:
+		glue->phy_mode = PHY_MODE_USB_HOST;
+		break;
+	case USB_DR_MODE_PERIPHERAL:
+		glue->phy_mode = PHY_MODE_USB_DEVICE;
+		break;
+	case USB_DR_MODE_OTG:
+		glue->phy_mode = PHY_MODE_USB_OTG;
+		break;
+	default:
+		dev_err(&pdev->dev, "Error 'dr_mode' property\n");
+		return -EINVAL;
+	}
+
+	DBG(0, "get dr_mode: %d\n", pdata->dr_mode);
+#endif
+
+#ifdef CONFIG_MTK_MUSB_DUAL_ROLE
+	/* assign usb-role-sw */
+	otg_sx = &glue->otg_sx;
+
+	otg_sx->manual_drd_enabled =
+		of_property_read_bool(np, "enable-manual-drd");
+	otg_sx->role_sw_used = of_property_read_bool(np, "usb-role-switch");
+
+	if (!otg_sx->role_sw_used && of_property_read_bool(np, "extcon")) {
+		otg_sx->edev = extcon_get_edev_by_phandle(&musb_pdev->dev, 0);
+		if (IS_ERR(otg_sx->edev)) {
+			dev_err(&musb_pdev->dev, "couldn't get extcon device\n");
+			return PTR_ERR(otg_sx->edev);
+		}
+	}
+#endif
+
+	ret = platform_device_add_data(musb_pdev, pdata, sizeof(*pdata));
+	if (ret) {
+		dev_notice(&pdev->dev, "failed to add platform_data\n");
+		goto err2;
+	}
+
+	ret = platform_device_add(musb_pdev);
+
+	if (ret) {
+		dev_notice(&pdev->dev, "failed to register musb device\n");
+		goto err2;
+	}
+#endif /* FPGA_PLATFORM */
 	DBG(0, "USB probe done!\n");
 
 #if defined(FPGA_PLATFORM) || defined(FOR_BRING_UP)
@@ -1935,7 +2719,12 @@ static int mt_usb_probe(struct platform_device *pdev)
 	return 0;
 
 err2:
-	platform_device_put(musb);
+	platform_device_put(musb_pdev);
+	platform_device_unregister(glue->musb_pdev);
+#ifdef CONFIG_PHY_MTK_TPHY
+err_unregister_usb_phy:
+	usb_phy_generic_unregister(glue->usb_phy);
+#endif
 err1:
 	kfree(glue);
 err0:
@@ -1945,8 +2734,13 @@ err0:
 static int mt_usb_remove(struct platform_device *pdev)
 {
 	struct mt_usb_glue *glue = platform_get_drvdata(pdev);
-
-	platform_device_unregister(glue->musb);
+#ifdef CONFIG_PHY_MTK_TPHY
+	struct platform_device *usb_phy = glue->usb_phy;
+#endif
+	platform_device_unregister(glue->musb_pdev);
+#ifdef CONFIG_PHY_MTK_TPHY
+	usb_phy_generic_unregister(usb_phy);
+#endif
 	kfree(glue);
 
 	return 0;
@@ -1960,6 +2754,7 @@ static struct platform_driver mt_usb_driver = {
 		.of_match_table = apusb_of_ids,
 	},
 };
+module_platform_driver(mt_usb_driver);
 
 static int __init usb20_init(void)
 {
@@ -1973,8 +2768,9 @@ static int __init usb20_init(void)
 		return 0;
 	}
 #endif
-
-	ret = platform_driver_register(&mt_usb_driver);
+	/* Fix musb_plat build-in */
+	/* ret = platform_driver_register(&mt_usb_driver); */
+	ret = 0;
 
 #ifdef FPGA_PLATFORM
 	add_usb_i2c_driver();
@@ -1987,7 +2783,8 @@ fs_initcall(usb20_init);
 
 static void __exit usb20_exit(void)
 {
-	platform_driver_unregister(&mt_usb_driver);
+	/* Fix musb_plat build-in */
+	/* platform_driver_unregister(&mt_usb_driver); */
 }
 module_exit(usb20_exit);
 

@@ -38,7 +38,7 @@
 #define HIMAX_SPI_FIFO_POLLING
 /* #define MTK_INT_NOT_WORK_WORKAROUND */
 #if !defined(CONFIG_TOUCHSCREEN_MTK)
-	//error Please check if need to enable HX_CONFIG_FB or not
+	#error Please check if need to enable HX_CONFIG_FB or not
 #endif
 /*#define HX_CONFIG_FB*/ /* Need Enable if mtk_tpd not support suspend/resume */
 
@@ -115,8 +115,6 @@ extern int himax_bus_read(uint8_t command, uint8_t *data,
 		uint32_t length, uint8_t toRetry);
 extern int himax_bus_write(uint8_t command, uint8_t *data,
 		uint32_t length, uint8_t toRetry);
-extern int himax_bus_write_command(uint8_t command,
-		uint8_t toRetry);
 extern void himax_int_enable(int enable);
 extern int himax_ts_register_interrupt(void);
 int himax_ts_unregister_interrupt(void);

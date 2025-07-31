@@ -1,13 +1,15 @@
+/* TabA7 Lite code for SR-AX3565-01-320 by zhengxu at 20220307 start*/
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/gpio.h>
 #include <linux/uaccess.h>
-/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 start */
+/* TabA7 Lite code for P210218-01007 by chengerui at 20220314 start */
 #include <linux/clk.h>
+#include <linux/of_gpio.h>
 
-#define GPIO_BASE 329
-#define GPIO_NUM (GPIO_BASE + 159)
+
+int secrityic_en_gpio = -1;
 
 struct grdm_driver_data {
 	int grdm_is_open;
@@ -18,13 +20,27 @@ static struct grdm_driver_data grdm_data = {
 	.grdm_is_open = 0,
 	.grdm_clk = NULL
 };
-/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 end */
+
+static int grdm_parse_dt(struct device *dev)
+{
+	struct device_node *np = dev->of_node;
+
+	pr_info("zhc: %s: parse gpio_power!\n", __func__);
+	secrityic_en_gpio = of_get_named_gpio(np, "sec,gpio_power", 0);
+	if (secrityic_en_gpio < 0) {
+		pr_err("get grdm,pvdd_gpio err!!!:%d\n", secrityic_en_gpio);
+		return -1;
+	}
+	pr_info("grdm,pvdd_gpio :%d\n", secrityic_en_gpio);
+
+	return 0;
+}
 
 static ssize_t show_grdm_node(struct device *dev,
 					struct device_attribute *attr, char *buf)
 {
 	pr_info("grdm_node_show, gpio159 is %d",
-					gpio_get_value(GPIO_NUM));
+					gpio_get_value(secrityic_en_gpio));
 
 	if (grdm_data.grdm_is_open) {
 		return sprintf(buf, "%s\n", "opened");
@@ -33,7 +49,6 @@ static ssize_t show_grdm_node(struct device *dev,
 	}
 }
 
-/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 start */
 static ssize_t store_grdm_node(struct device *dev,
 					struct device_attribute *attr,
 					const char *buf, size_t len)
@@ -53,7 +68,7 @@ static ssize_t store_grdm_node(struct device *dev,
 			return -1;
 		}
 		clk_prepare_enable(grdm_data.grdm_clk);
-		gpio_direction_output(GPIO_NUM, 1);
+		gpio_direction_output(secrityic_en_gpio, 1);
 		grdm_data.grdm_is_open = 1;
 	} else if (buf[0] == '0' && grdm_data.grdm_is_open == 1) {
 		pr_err("%s close\n", __func__);
@@ -63,21 +78,20 @@ static ssize_t store_grdm_node(struct device *dev,
 			return -1;
 		}
 		clk_disable_unprepare(grdm_data.grdm_clk);
-		gpio_direction_output(GPIO_NUM, 0);
+		gpio_direction_output(secrityic_en_gpio, 0);
 		grdm_data.grdm_is_open = 0;
 	} else {
 		pr_err("%s buf is %s, len is %d, grdm_is_open is %d\n",
 						__func__, buf, len, grdm_data.grdm_is_open);
 		return -1;
 	}
-	/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 start */
 
 	return len;
 }
 
 static DEVICE_ATTR(grdm_node_gpio, S_IWUSR|S_IRUSR,
 				show_grdm_node, store_grdm_node);
-
+//OT8S Lite code OT8S-7 by lilei at 20220311 start
 static int grdm_open(struct inode *inode, struct file *filp)
 {
 	int ret = 0;
@@ -95,7 +109,7 @@ static int grdm_open(struct inode *inode, struct file *filp)
 	}
 
 	clk_prepare_enable(grdm_data.grdm_clk);
-	gpio_direction_output(GPIO_NUM, 1);
+	gpio_direction_output(secrityic_en_gpio, 1);
 	grdm_data.grdm_is_open = 1;
 
 	return 0;
@@ -118,13 +132,12 @@ static int grdm_release(struct inode *inode, struct file *filp)
 	}
 
 	clk_disable_unprepare(grdm_data.grdm_clk);
-	gpio_direction_output(GPIO_NUM, 0);
+	gpio_direction_output(secrityic_en_gpio, 0);
 	grdm_data.grdm_is_open = 0;
 
 	return 0;
 }
-/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 end */
-
+//OT8S Lite code OT8S-7 by lilei at 20220311 end
 static ssize_t grdm_write(struct file *file, const char __user *buf,
 						size_t count, loff_t *ppos)
 {
@@ -139,15 +152,13 @@ static ssize_t grdm_write(struct file *file, const char __user *buf,
 		return -1;
 	}
 
-	/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 start */
 	if (p[0] == '0') {
-		gpio_direction_output(GPIO_NUM, 0);
+		gpio_direction_output(secrityic_en_gpio, 0);
 		grdm_data.grdm_is_open = 0;
 	} else {
-		gpio_direction_output(GPIO_NUM, 1);
+		gpio_direction_output(secrityic_en_gpio, 1);
 		grdm_data.grdm_is_open = 1;
 	}
-	/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 end */
 
 	return count;
 }
@@ -160,13 +171,11 @@ static ssize_t grdm_read(struct file *file, char __user *buf,
 		return -1;
 	}
 
-/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 start */
 	if (grdm_data.grdm_is_open == 1) {
 		copy_to_user(buf, "1", 1);
 	} else {
 		copy_to_user(buf, "0", 1);
 	}
-/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 end */
 
 	return count;
 }
@@ -202,9 +211,11 @@ static int grdm_probe(struct platform_device *pdev)
 					&dev_attr_grdm_node_gpio.attr)) {
 		return -1;
 	}
-
-	/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 start */
-	ret = gpio_request(GPIO_NUM, "grdm_pvdd_en");
+	ret = grdm_parse_dt(&pdev->dev);
+    if(ret < 0)
+		return -1;
+	pr_info("grdm_parse_dt ret is  :%d\n", ret);
+	ret = gpio_request(secrityic_en_gpio, "grdm_pvdd_en");
 	if (ret != 0) {
 		pr_warn("failed to request grdm gpio!\n");
 	}
@@ -215,7 +226,6 @@ static int grdm_probe(struct platform_device *pdev)
 		pr_err("failed to get grdm_clk, ret is %d\n", ret);
 		return ret;
 	}
-	/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 end */
 
 	return 0;
 }
@@ -226,11 +236,12 @@ static int grdm_remove(struct platform_device *pdev)
 	device_destroy(grdm_node_class, MKDEV(major, 0));
 	class_destroy(grdm_node_class);
 	unregister_chrdev(major, "grdm_node");
-	gpio_direction_output(GPIO_NUM, 0);
+	gpio_direction_output(secrityic_en_gpio, 0);
 	grdm_data.grdm_is_open = 0;
 
 	return 0;
 }
+/* TabA7 Lite code for P210218-01007 by chengerui at 20220314 end */
 
 static struct platform_driver grdm_driver = {
 	.driver = {
@@ -256,3 +267,4 @@ static void __exit grdm_exit(void)
 module_init(grdm_init);
 module_exit(grdm_exit);
 MODULE_LICENSE("GPL");
+/* TabA7 Lite code for SR-AX3565-01-320 by zhengxu at 20220307 end*/

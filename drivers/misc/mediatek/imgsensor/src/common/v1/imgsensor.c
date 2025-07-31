@@ -48,7 +48,10 @@
 #include "imgsensor_clk.h"
 #include "imgsensor.h"
 
-#define PDAF_DATA_SIZE 4096
+/*hs14 code for SR-AL6528A-01-54 by chengzhi at 2022-9-24 start*/
+//#define PDAF_DATA_SIZE 4096
+#define PDAF_DATA_SIZE 10240
+/*hs14 code for SR-AL6528A-01-54 by chengzhi at 2022-9-24 end*/
 
 #ifdef CONFIG_MTK_SMI_EXT
 static int current_mmsys_clk = MMSYS_CLK_MEDIUM;
@@ -74,15 +77,115 @@ static DEFINE_MUTEX(gimgsensor_mutex);
 
 struct IMGSENSOR  gimgsensor;
 struct IMGSENSOR *pgimgsensor = &gimgsensor;
+MUINT32 last_id;
 
 /*prevent imgsensor race condition in vulunerbility test*/
 struct mutex imgsensor_mutex;
-
-/**[AX3565] lisizhou add for cam info 2020/12/04 start**/
-#if CAM_MODULE_INFO_CONFIG
-   extern char *cameraModuleInfo[];
+#ifdef CONFIG_HQ_PROJECT_HS03S
+	/* hs03s code for AR-AL5625-01-502 by xuxianwei at 2021/05/27 start */
+/*hs03s_NM code for SL6215DEV-4183 by liluling at 2022/4/15 start*/
+	extern char *cameraMateriaNumber[4];
+	static char *cameraMateriaNumber_define[][2]={
+	/*main camera*/
+		{"hi1336_txd_mipi_raw", "HQ20208296000"},
+		{"gc13053_ly_mipi_raw", "HQ20208298000"},
+		{"s5k3l6_ofilm_mipi_raw", "HQ20208297000"},
+		{"ov13b10_dd_mipi_raw", "HQ20208302000"},
+		{"ov13b10_qt_mipi_raw", "HQ20208331000"},
+		{"hi1336_txds_mipi_raw", "HQ20208330000"},
+		{"ov13b10_xl_mipi_raw",	"HQ20208332000"},
+		{"hi1336_hlt_mipi_raw", "HQ20207953000"},
+		{"sc1300cs_ly_mipi_raw", "HQ20208934000"},
+	/*front camera*/
+		{"hi556_txd_mipi_raw",	"HQ20208294000"},
+		{"hi556_ofilm_mipi_raw","HQ20208295000"},
+		{"gc5035_dd_mipi_raw",	"HQ20208301000"},
+		{"gc5035_ly_mipi_raw",  "HQ20208299000"},
+		{"gc5035_xl_mipi_raw",  "HQ20208333000"},
+		{"sc500cs_dd_mipi_raw",  "HQ20208933000"},
+	/*macro camera*/
+		{"gc02m1_cxt_mipi_raw","HQ20208304000"},
+		{"ov02b10_ly_mipi_raw","HQ20208303000"},
+		{"gc02m1_jk_mipi_raw","HQ20208293000"},
+		{"gc02m1_hlt_mipi_raw","HQ20208300000"},
+		{"sc201cs_cxt_macro_mipi_raw","HQ20208932000"},
+	/*depth camera*/
+		{"gc2375h_cxt_mipi_raw","HQ20207875000"},
+		{"gc02m1b_ly_mipi_raw",	"HQ20207879000"},
+		{"ov02b1b_jk_mipi_raw",	"HQ20207899000"},
+		{"gc2375h_sjc_mipi_raw","HQ20207971000"},
+		{"sc201cs_cxt_mipi_raw","HQ20208935000"},
+		{"NULL","NULL"}	//must keep this line exist
+	};
+	/* hs03s code for AR-AL5625-01-502 by xuxianwei at 2021/05/27 end */
+/*hs03s_NM code for SL6215DEV-4183 by liluling at 2022/4/15 end */
 #endif
-/**[AX3565] lisizhou add for cam info 2020/12/04 end**/
+
+/*hs04 code for DEVAL6398A-46 by renxinglin at  2022/10/14 start*/
+#ifdef CONFIG_HQ_PROJECT_HS04
+	extern char *cameraMateriaNumber[4];
+	static char *cameraMateriaNumber_define[][2]={
+        /*main camera*/
+        {"o2101_sc1300csly_back_mipi_raw", "HQ20208934000"},
+        {"o2102_hi1336txd_back_mipi_raw", "HQ20209056000"},
+        {"o2103_ov13b10hlt_back_mipi_raw", "HQ2020905A000"},
+        {"o2104_hi1336sjc_back_mipi_raw", "HQ2020905B000"},
+        /*front camera*/
+        {"o2101_hi556txd_front_mipi_raw",  "HQ20208294000"},
+        {"o2102_ov05a10hlt_front_mipi_raw",  "HQ20209058000"},
+        {"o2103_sc520syx_front_mipi_raw",  "HQ2020905D000"},
+		{"o2104_hi556wtxd_front_mipi_raw",  "HQ20209059000"},
+        /*depth camera*/
+        {"o2101_sc201cscxt_depth_mipi_raw", "HQ20208935000"},
+        {"o2102_gc2375hhlt_depth_mipi_raw", "HQ20209057000"},
+        {"o2103_sp2507hcxt_depth_mipi_raw", "HQ20209055000"},
+        {"NULL","NULL"}	//must keep this line exist
+	};
+#endif
+/*hs04 code for DEVAL6398A-46 by renxinglin at  2022/10/14 end*/
+
+
+/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 end*/
+
+/* A03s code for SR-AL5625-01-324 by xuxianwei at 2021/04/22 start */
+#if CAM_MODULE_INFO_CONFIG
+   extern char *cameraModuleInfo[4];
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS03S
+/* hs03s code for AR-AL5625-01-502 by xuxianwei at 2021/05/27 start */
+static void materianumber_judge(char *sensor_name,int meterial_index){
+	int index = 0;
+	for(index=0;(0!=strcmp("NULL",cameraMateriaNumber_define[index][0]));index++)
+	{
+		if(strcmp(sensor_name,cameraMateriaNumber_define[index][0]) == 0)
+		{
+			cameraMateriaNumber[meterial_index]=cameraMateriaNumber_define[index][1];
+			PK_DBG("sensor_name is %s,cameraMateriaNumber is %s",sensor_name,cameraMateriaNumber[meterial_index]);
+			break;
+		}
+	}
+}
+/* hs03s code for AR-AL5625-01-502 by xuxianwei at 2021/05/27 end */
+#endif
+/* A03s code for SR-AL5625-01-324 by xuxianwei at 2021/04/22 end */
+
+/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 start*/
+#ifdef CONFIG_HQ_PROJECT_HS04
+static void materianumber_judge(char *sensor_name,int meterial_index){
+	int index = 0;
+	for(index=0;(0!=strcmp("NULL",cameraMateriaNumber_define[index][0]));index++)
+	{
+		if(strcmp(sensor_name,cameraMateriaNumber_define[index][0]) == 0)
+		{
+			cameraMateriaNumber[meterial_index]=cameraMateriaNumber_define[index][1];
+			PK_DBG("sensor_name is %s,cameraMateriaNumber is %s",sensor_name,cameraMateriaNumber[meterial_index]);
+			break;
+		}
+	}
+}
+#endif
+
+/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 end*/
 
 DEFINE_MUTEX(pinctrl_mutex);
 DEFINE_MUTEX(oc_mutex);
@@ -107,7 +210,7 @@ void IMGSENSOR_PROFILE(struct timeval *ptv, char *tag)
 	time_interval =
 	    (tv.tv_sec - ptv->tv_sec) * 1000000 + (tv.tv_usec - ptv->tv_usec);
 
-	PK_DBG("[%s]Profile = %lu us\n", tag, time_interval);
+	pr_info("[%s]Profile = %lu us\n", tag, time_interval);
 }
 
 #else
@@ -123,8 +226,7 @@ void IMGSENSOR_PROFILE(struct timeval *ptv, char *tag) {}
 struct IMGSENSOR_SENSOR *
 imgsensor_sensor_get_inst(enum IMGSENSOR_SENSOR_IDX idx)
 {
-	if (idx < IMGSENSOR_SENSOR_IDX_MIN_NUM ||
-	    idx >= IMGSENSOR_SENSOR_IDX_MAX_NUM)
+	if (idx >= IMGSENSOR_SENSOR_IDX_MAX_NUM)
 		return NULL;
 	else
 		return &pgimgsensor->sensor[idx];
@@ -186,21 +288,40 @@ imgsensor_sensor_open(struct IMGSENSOR_SENSOR *psensor)
 		if (pgimgsensor->imgsensor_oc_irq_enable != NULL)
 			pgimgsensor->imgsensor_oc_irq_enable(
 					psensor->inst.sensor_idx, false);
+
 		ret = imgsensor_hw_power(&pgimgsensor->hw,
 		    psensor,
 		    psensor_inst->psensor_name,
 		    IMGSENSOR_HW_POWER_STATUS_ON);
+
 		if (ret != IMGSENSOR_RETURN_SUCCESS) {
 			PK_DBG("[%s]", __func__);
 			return -EIO;
 		}
 		/* wait for power stable */
+		/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
+		mDELAY(5);
+		pr_info("[hs03s E] camera poweron delay 5ms");
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+		mDELAY(5);
+		pr_info("[hs04 E] camera poweron delay 5ms");
+#endif
+#if defined(CONFIG_HQ_PROJECT_O22) || defined(CONFIG_HQ_PROJECT_O8)
+		mDELAY(5);
+		pr_info("[hs04 E] camera poweron delay 5ms");
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
 		mDELAY(20);
+#endif
+		/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 end*/
 
 		IMGSENSOR_PROFILE(&psensor_inst->profile_time,
 		    "kdCISModulePowerOn");
 
 		imgsensor_mutex_lock(psensor_inst);
+
 		psensor_func->psensor_inst = psensor_inst;
 		ret = psensor_func->SensorOpen();
 		if (ret != ERROR_NONE) {
@@ -209,7 +330,7 @@ imgsensor_sensor_open(struct IMGSENSOR_SENSOR *psensor)
 			    psensor_inst->psensor_name,
 			    IMGSENSOR_HW_POWER_STATUS_OFF);
 
-			pr_info("SensorOpen fail");
+			PK_DBG("SensorOpen fail");
 		} else {
 			psensor_inst->state = IMGSENSOR_STATE_OPEN;
 #ifdef CONFIG_MTK_CCU
@@ -413,11 +534,11 @@ imgsensor_sensor_close(struct IMGSENSOR_SENSOR *psensor)
 
 		psensor_func->psensor_inst = psensor_inst;
 
-		if (pgimgsensor->imgsensor_oc_irq_enable != NULL){
+		/* A03s code for CAM-AL5625-01-247 by lisizhou at 2021/05/10 start */
+		if (pgimgsensor->imgsensor_oc_irq_enable != NULL)
 			pgimgsensor->imgsensor_oc_irq_enable(
 					psensor->inst.sensor_idx, false);
-					PK_DBG(" [%s] lisizhou \n", __func__);
-		}
+		/* A03s code for CAM-AL5625-01-247 by lisizhou at 2021/05/10 end */
 
 		ret = psensor_func->SensorClose();
 		if (ret != ERROR_NONE) {
@@ -449,6 +570,29 @@ static inline int imgsensor_check_is_alive(struct IMGSENSOR_SENSOR *psensor)
 	MUINT32 retLen = sizeof(MUINT32);
 
 	IMGSENSOR_PROFILE_INIT(&psensor_inst->profile_time);
+#ifdef CONFIG_HQ_PROJECT_HS03S
+/* HS03s code for P210619-01144 by chenjun at 2021/07/15 start */
+	if (pgimgsensor->imgsensor_oc_irq_enable != NULL)
+	pgimgsensor->imgsensor_oc_irq_enable(
+			psensor->inst.sensor_idx, false);
+	pr_info("[hs03s I]disable vcama oc before power on");
+/* HS03s code for P210619-01144 by chenjun at 2021/07/15 end */
+#endif
+
+/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 start*/
+#ifdef CONFIG_HQ_PROJECT_HS04
+	if (pgimgsensor->imgsensor_oc_irq_enable != NULL)
+	pgimgsensor->imgsensor_oc_irq_enable(
+			psensor->inst.sensor_idx, false);
+	pr_info("[hs04 I]disable vcama oc before power on");
+#endif
+#if defined(CONFIG_HQ_PROJECT_O22) || defined(CONFIG_HQ_PROJECT_O8)
+	if (pgimgsensor->imgsensor_oc_irq_enable != NULL)
+	pgimgsensor->imgsensor_oc_irq_enable(
+			psensor->inst.sensor_idx, false);
+	pr_info("[hs04 I]disable vcama oc before power on");
+#endif
+/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 end*/
 
 	err = imgsensor_hw_power(&pgimgsensor->hw,
 				psensor,
@@ -463,15 +607,15 @@ static inline int imgsensor_check_is_alive(struct IMGSENSOR_SENSOR *psensor)
 			&retLen);
 
 	if (sensorID == 0 || sensorID == 0xFFFFFFFF) {
-		PK_DBG("Fail to get sensor ID %x\n", sensorID);
+		pr_info("Fail to get sensor ID %x\n", sensorID);
 		err = ERROR_SENSOR_CONNECT_FAIL;
 	} else {
-		PK_DBG(" Sensor found ID = 0x%x\n", sensorID);
+		pr_info(" Sensor found ID = 0x%x\n", sensorID);
 		err = ERROR_NONE;
 	}
 
 	if (err != ERROR_NONE)
-		PK_DBG("ERROR: No imgsensor alive\n");
+		pr_info("ERROR: No imgsensor alive\n");
 
 	imgsensor_hw_power(&pgimgsensor->hw,
 	    psensor,
@@ -501,8 +645,8 @@ int imgsensor_set_driver(struct IMGSENSOR_SENSOR *psensor)
 
 	static int orderedSearchList[MAX_NUM_OF_SUPPORT_SENSOR] = {-1};
 	static bool get_search_list = true;
-	int i = 0;
-	int j = 0;
+	unsigned int i = 0;
+	unsigned int j = 0;
 	char *driver_name = NULL;
 
 	imgsensor_mutex_init(psensor_inst);
@@ -525,7 +669,7 @@ int imgsensor_set_driver(struct IMGSENSOR_SENSOR *psensor)
 
 			*(psensor_list_config+strlen(sensor_configs)-2) = '\0';
 
-			PK_DBG("sensor_list %s\n", psensor_list_config);
+			pr_info("sensor_list %s\n", psensor_list_config);
 			driver_name = strsep(&psensor_list_config, " \0");
 
 			while (driver_name != NULL) {
@@ -592,19 +736,54 @@ int imgsensor_set_driver(struct IMGSENSOR_SENSOR *psensor)
 				    psensor->pfunc->arch;
 #endif
 				if (!imgsensor_check_is_alive(psensor)) {
-					PK_DBG(
+					pr_info(
 					    "[%s]:[%d][%d][%s]\n",
 					    __func__,
 					    psensor->inst.sensor_idx,
 					    drv_idx,
 					    psensor_inst->psensor_name);
-/**[AX3565] lisizhou add for camera info 2020/12/04/ start **/
+/* A03s code for SR-AL5625-01-324 by xuxianwei at 2021/04/22 start */
+/* A03s code for SR-AL5625-01-59 by xuxianwei at 2021/05/06 start */
 #if CAM_MODULE_INFO_CONFIG
-                    cameraModuleInfo[psensor->inst.sensor_idx] = psensor_inst->psensor_name;
-
+/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
+					if(psensor->inst.sensor_idx == 4){
+						cameraModuleInfo[psensor->inst.sensor_idx-1] = psensor_inst->psensor_name;
+						materianumber_judge(psensor_inst->psensor_name,(psensor->inst.sensor_idx-1));
+						PK_DBG("sensor_name is %s,camera_id is %d -1,cameraMateriaNumber is %s",
+						psensor_inst->psensor_name,psensor->inst.sensor_idx,cameraMateriaNumber[psensor->inst.sensor_idx-1]);
+					}else{
+						cameraModuleInfo[psensor->inst.sensor_idx] = psensor_inst->psensor_name;
+						materianumber_judge(psensor_inst->psensor_name,psensor->inst.sensor_idx);
+						PK_DBG("sensor_name is %s,camera_id is %d,cameraMateriaNumber is %s",
+						psensor_inst->psensor_name,psensor->inst.sensor_idx,cameraMateriaNumber[psensor->inst.sensor_idx]);
+					}
 #endif
-/**[AX3565] lisizhou add for camera info 2020/12/04/ end **/
+#ifdef CONFIG_HQ_PROJECT_HS04
+					if(psensor->inst.sensor_idx == 4){
+						cameraModuleInfo[psensor->inst.sensor_idx-1] = psensor_inst->psensor_name;
+						materianumber_judge(psensor_inst->psensor_name,(psensor->inst.sensor_idx-1));
+						PK_DBG("sensor_name is %s,camera_id is %d -1,cameraMateriaNumber is %s",
+						psensor_inst->psensor_name,psensor->inst.sensor_idx,cameraMateriaNumber[psensor->inst.sensor_idx-1]);
+					}else{
+						cameraModuleInfo[psensor->inst.sensor_idx] = psensor_inst->psensor_name;
+						materianumber_judge(psensor_inst->psensor_name,psensor->inst.sensor_idx);
+						PK_DBG("sensor_name is %s,camera_id is %d,cameraMateriaNumber is %s",
+						psensor_inst->psensor_name,psensor->inst.sensor_idx,cameraMateriaNumber[psensor->inst.sensor_idx]);
+					}
+#endif
 
+#ifdef CONFIG_HQ_PROJECT_OT8
+					if(psensor->inst.sensor_idx == 4){
+						cameraModuleInfo[psensor->inst.sensor_idx-1] = psensor_inst->psensor_name;
+					}else{
+						cameraModuleInfo[psensor->inst.sensor_idx] = psensor_inst->psensor_name;
+					}
+#endif
+/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 end*/
+#endif
+/* A03s code for SR-AL5625-01-59 by xuxianwei at 2021/05/06 end */
+/* A03s code for SR-AL5625-01-324 by xuxianwei at 2021/04/22 start */		
 					ret = drv_idx;
 					break;
 				}
@@ -761,7 +940,7 @@ static void cam_temperature_report_wq_routine(
 	    &valid[0],
 	    &temp[0]);
 
-	PK_DBG("senDevId(%d), valid(%d), temperature(%d)\n",
+	pr_info("senDevId(%d), valid(%d), temperature(%d)\n",
 				DUAL_CAMERA_MAIN_SENSOR, valid[0], temp[0]);
 
 	if (ret != ERROR_NONE)
@@ -773,7 +952,7 @@ static void cam_temperature_report_wq_routine(
 	    &valid[1],
 	    &temp[1]);
 
-	PK_DBG("senDevId(%d), valid(%d), temperature(%d)\n",
+	pr_info("senDevId(%d), valid(%d), temperature(%d)\n",
 				DUAL_CAMERA_SUB_SENSOR, valid[1], temp[1]);
 
 	if (ret != ERROR_NONE)
@@ -785,7 +964,7 @@ static void cam_temperature_report_wq_routine(
 	    &valid[2],
 	    &temp[2]);
 
-	PK_DBG("senDevId(%d), valid(%d), temperature(%d)\n",
+	pr_info("senDevId(%d), valid(%d), temperature(%d)\n",
 				DUAL_CAMERA_MAIN_2_SENSOR, valid[2], temp[2]);
 
 	if (ret != ERROR_NONE)
@@ -796,7 +975,7 @@ static void cam_temperature_report_wq_routine(
 	    &valid[3],
 	    &temp[3]);
 
-	PK_DBG("senDevId(%d), valid(%d), temperature(%d)\n",
+	pr_info("senDevId(%d), valid(%d), temperature(%d)\n",
 				DUAL_CAMERA_SUB_2_SENSOR, valid[3], temp[3]);
 
 	if (ret != ERROR_NONE)
@@ -830,13 +1009,13 @@ static inline int adopt_CAMERA_HW_GetInfo2(void *pBuf)
 	if (pSensorGetInfo == NULL ||
 	    pSensorGetInfo->pInfo == NULL ||
 	    pSensorGetInfo->pSensorResolution == NULL) {
-		PK_DBG("[%s] NULL arg.\n", __func__);
+		pr_info("[%s] NULL arg.\n", __func__);
 		return -EFAULT;
 	}
 
 	psensor = imgsensor_sensor_get_inst(pSensorGetInfo->SensorId);
 	if (psensor == NULL) {
-		PK_DBG("[%s] NULL psensor.\n", __func__);
+		pr_info("[%s] NULL psensor.\n", __func__);
 		return -EFAULT;
 	}
 
@@ -1084,6 +1263,12 @@ static inline int adopt_CAMERA_HW_GetInfo2(void *pBuf)
 				psensorResolution->SensorVideoWidth,
 				psensorResolution->SensorVideoHeight);
 
+	if (pSensorGetInfo->SensorId <= last_id) {
+		memset(mtk_ccm_name, 0, camera_info_size);
+		PK_DBG("memset ok");
+	}
+	last_id = pSensorGetInfo->SensorId;
+
 	/* Add info to proc: camera_info */
 	pmtk_ccm_name = strchr(mtk_ccm_name, '\0');
 	snprintf(pmtk_ccm_name,
@@ -1256,7 +1441,6 @@ static inline int check_length_of_para(
 	case SENSOR_FEATURE_GET_SHUTTER_GAIN_AWB_GAIN:
 	case SENSOR_FEATURE_GET_EXIF_INFO:
 	case SENSOR_FEATURE_GET_DELAY_INFO:
-	case SENSOR_FEATURE_SET_TEST_PATTERN:
 	case SENSOR_FEATURE_GET_TEST_PATTERN_CHECKSUM_VALUE:
 	case SENSOR_FEATURE_SET_OB_LOCK:
 	case SENSOR_FEATURE_SET_SENSOR_OTP_AWB_CMD:
@@ -1376,6 +1560,14 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	void *pFeaturePara = NULL;
 	struct ACDK_KD_SENSOR_SYNC_STRUCT *pSensorSyncInfo = NULL;
 	signed int ret = 0;
+	struct SET_SENSOR_PATTERN_SOLID_COLOR *pData = NULL;
+	unsigned long long *pFeaturePara_64 = NULL;
+	void *usr_ptr = NULL;
+	kal_uint32 u4RegLen = 0;
+	char *pPdaf_data = NULL;
+	void *usr_ptr_Reg = NULL;
+	kal_uint32 buf_size = 0;
+	kal_uint32 *pReg = NULL;
 
 	pFeatureCtrl = (struct ACDK_SENSOR_FEATURECONTROL_STRUCT *)pBuf;
 	if (pFeatureCtrl  == NULL) {
@@ -1501,6 +1693,7 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY:
 	case SENSOR_FEATURE_GET_SENSOR_HDR_CAPACITY:
 	case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
+	case SENSOR_FEATURE_GET_AWB_REQ_BY_SCENARIO:
 	case SENSOR_FEATURE_GET_OFFSET_TO_START_OF_EXPOSURE:
 	case SENSOR_FEATURE_GET_PIXEL_RATE:
 	case SENSOR_FEATURE_SET_PDAF:
@@ -1585,11 +1778,18 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY:
 	case SENSOR_FEATURE_GET_SENSOR_HDR_CAPACITY:
 	case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
+	case SENSOR_FEATURE_GET_AWB_REQ_BY_SCENARIO:
 	case SENSOR_FEATURE_GET_PIXEL_RATE:
 	{
 		MUINT32 *pValue = NULL;
-		unsigned long long *pFeaturePara_64 =
+		pFeaturePara_64 =
 		    (unsigned long long *)pFeaturePara;
+
+		if (FeatureParaLen < 2 * sizeof(unsigned long long)) {
+			PK_DBG("FeatureParaLen is too small %d\n", FeatureParaLen);
+			kfree(pFeaturePara);
+			return -EINVAL;
+		}
 
 		pValue = kmalloc(sizeof(MUINT32), GFP_KERNEL);
 		if (pValue == NULL) {
@@ -1641,8 +1841,14 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	{
 		MUINT32 *pValue0 = NULL;
 		MUINT32 *pValue1 = NULL;
-		unsigned long long *pFeaturePara_64 =
+		pFeaturePara_64 =
 		    (unsigned long long *)pFeaturePara;
+
+		if (FeatureParaLen < 2 * sizeof(unsigned long long)) {
+			PK_DBG("FeatureParaLen is too small %d\n", FeatureParaLen);
+			kfree(pFeaturePara);
+			return -EINVAL;
+		}
 
 		pValue0 = kmalloc(sizeof(MUINT32), GFP_KERNEL);
 		pValue1 = kmalloc(sizeof(MUINT32), GFP_KERNEL);
@@ -1675,10 +1881,16 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_EV_AWB_REF:
 	{
 		struct SENSOR_AE_AWB_REF_STRUCT *pAeAwbRef = NULL;
-		unsigned long long *pFeaturePara_64 =
+		pFeaturePara_64 =
 		    (unsigned long long *)pFeaturePara;
 
-		void *usr_ptr = (void *)(uintptr_t)(*(pFeaturePara_64));
+		usr_ptr = (void *)(uintptr_t)(*(pFeaturePara_64));
+
+		if (FeatureParaLen < 1 * sizeof(unsigned long long)) {
+			PK_DBG("FeatureParaLen is too small %d\n", FeatureParaLen);
+			kfree(pFeaturePara);
+			return -EINVAL;
+		}
 
 		pAeAwbRef = kmalloc(
 		    sizeof(struct SENSOR_AE_AWB_REF_STRUCT),
@@ -1716,10 +1928,16 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_CROP_INFO:
 	{
 		struct SENSOR_WINSIZE_INFO_STRUCT *pCrop = NULL;
-		unsigned long long *pFeaturePara_64 =
+		pFeaturePara_64 =
 		    (unsigned long long *)pFeaturePara;
 
-		void *usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64 + 1));
+		usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64 + 1));
+
+		if (FeatureParaLen < 2 * sizeof(unsigned long long)) {
+			PK_DBG("FeatureParaLen is too small %d\n", FeatureParaLen);
+			kfree(pFeaturePara);
+			return -EINVAL;
+		}
 
 		pCrop = kmalloc(
 		    sizeof(struct SENSOR_WINSIZE_INFO_STRUCT),
@@ -1754,10 +1972,16 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_VC_INFO:
 	{
 		struct SENSOR_VC_INFO_STRUCT *pVcInfo = NULL;
-		unsigned long long *pFeaturePara_64 =
+		pFeaturePara_64 =
 		    (unsigned long long *)pFeaturePara;
 
-		void *usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64 + 1));
+		usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64 + 1));
+
+		if (FeatureParaLen < 2 * sizeof(unsigned long long)) {
+			PK_DBG("FeatureParaLen is too small %d\n", FeatureParaLen);
+			kfree(pFeaturePara);
+			return -EINVAL;
+		}
 
 		pVcInfo = kmalloc(
 		    sizeof(struct SENSOR_VC_INFO_STRUCT),
@@ -1791,10 +2015,16 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_PDAF_INFO:
 	{
 		struct SET_PD_BLOCK_INFO_T *pPdInfo = NULL;
-		unsigned long long *pFeaturePara_64 =
+		pFeaturePara_64 =
 		    (unsigned long long *)pFeaturePara;
 
-		void *usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64 + 1));
+		usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64 + 1));
+
+		if (FeatureParaLen < 2 * sizeof(unsigned long long)) {
+			PK_DBG("FeatureParaLen is too small %d\n", FeatureParaLen);
+			kfree(pFeaturePara);
+			return -EINVAL;
+		}
 
 		pPdInfo = kmalloc(
 		    sizeof(struct SET_PD_BLOCK_INFO_T),
@@ -1828,13 +2058,18 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_PDAF_REG_SETTING:
 	case SENSOR_FEATURE_SET_PDAF_REG_SETTING:
 	{
-		unsigned long long *pFeaturePara_64 =
+		pFeaturePara_64 =
 		    (unsigned long long *)pFeaturePara;
 
-		kal_uint32 u4RegLen = (*pFeaturePara_64);
-		void *usr_ptr_Reg =
+		u4RegLen = (*pFeaturePara_64);
+		usr_ptr_Reg =
 		    (void *)(uintptr_t) (*(pFeaturePara_64 + 1));
-		kal_uint32 *pReg = NULL;
+
+		if (FeatureParaLen < 2 * sizeof(unsigned long long)) {
+			PK_DBG("FeatureParaLen is too small %d\n", FeatureParaLen);
+			kfree(pFeaturePara);
+			return -EINVAL;
+		}
 
 		if (u4RegLen > PDAF_DATA_SIZE) {
 			kfree(pFeaturePara);
@@ -1873,7 +2108,6 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	}
 
 	break;
-
 	case SENSOR_FEATURE_SET_AF_WINDOW:
 	case SENSOR_FEATURE_SET_AE_WINDOW:
 	{
@@ -1881,7 +2115,7 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 		unsigned long long *pFeaturePara_64 =
 		    (unsigned long long *)pFeaturePara;
 
-		void *usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64));
+		usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64));
 
 		pApWindows = kmalloc(sizeof(MUINT32) * 6, GFP_KERNEL);
 		if (pApWindows == NULL) {
@@ -1916,7 +2150,13 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 		unsigned long long *pFeaturePara_64 =
 		    (unsigned long long *)pFeaturePara;
 
-		void *usr_ptr =  (void *)(uintptr_t) (*(pFeaturePara_64));
+		usr_ptr =  (void *)(uintptr_t) (*(pFeaturePara_64));
+
+		if (FeatureParaLen < 1 * sizeof(unsigned long long)) {
+			PK_DBG("FeatureParaLen is too small %d\n", FeatureParaLen);
+			kfree(pFeaturePara);
+			return -EINVAL;
+		}
 
 		pExif = kmalloc(
 		    sizeof(struct SENSOR_EXIF_INFO_STRUCT),
@@ -1951,10 +2191,16 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	{
 
 		struct SENSOR_AE_AWB_CUR_STRUCT *pCurAEAWB = NULL;
-		unsigned long long *pFeaturePara_64 =
+		pFeaturePara_64 =
 		    (unsigned long long *)pFeaturePara;
 
-		void *usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64));
+		usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64));
+
+			if (FeatureParaLen < 1 * sizeof(unsigned long long)) {
+				PK_DBG("FeatureParaLen is too small %d\n", FeatureParaLen);
+				kfree(pFeaturePara);
+				return -EINVAL;
+			}
 
 		pCurAEAWB = kmalloc(
 		    sizeof(struct SENSOR_AE_AWB_CUR_STRUCT),
@@ -1997,7 +2243,13 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 		unsigned long long *pFeaturePara_64 =
 		    (unsigned long long *)pFeaturePara;
 
-		void *usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64));
+		usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64));
+
+			if (FeatureParaLen < 1 * sizeof(unsigned long long)) {
+				PK_DBG("FeatureParaLen is too small %d\n", FeatureParaLen);
+				kfree(pFeaturePara);
+				return -EINVAL;
+			}
 
 		pDelayInfo = kmalloc(
 		    sizeof(struct SENSOR_DELAY_INFO_STRUCT),
@@ -2036,10 +2288,16 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_AE_FLASHLIGHT_INFO:
 	{
 		struct SENSOR_FLASHLIGHT_AE_INFO_STRUCT *pFlashInfo = NULL;
-		unsigned long long *pFeaturePara_64 =
+		pFeaturePara_64 =
 		    (unsigned long long *)pFeaturePara;
 
-		void *usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64));
+		usr_ptr = (void *)(uintptr_t) (*(pFeaturePara_64));
+
+			if (FeatureParaLen < 1 * sizeof(unsigned long long)) {
+				PK_DBG("FeatureParaLen is too small %d\n", FeatureParaLen);
+				kfree(pFeaturePara);
+				return -EINVAL;
+			}
 
 		pFlashInfo = kmalloc(
 		    sizeof(struct SENSOR_FLASHLIGHT_AE_INFO_STRUCT),
@@ -2078,11 +2336,16 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_PDAF_DATA:
 	case SENSOR_FEATURE_GET_4CELL_DATA:
 	{
-		char *pPdaf_data = NULL;
-		unsigned long long *pFeaturePara_64 =
+		pFeaturePara_64 =
 		    (unsigned long long *) pFeaturePara;
-		void *usr_ptr = (void *)(uintptr_t)(*(pFeaturePara_64 + 1));
-		kal_uint32 buf_size = (kal_uint32) (*(pFeaturePara_64 + 2));
+		usr_ptr = (void *)(uintptr_t)(*(pFeaturePara_64 + 1));
+		buf_size = (kal_uint32) (*(pFeaturePara_64 + 2));
+
+			if (FeatureParaLen < 3 * sizeof(unsigned long long)) {
+				PK_DBG("FeatureParaLen is too small %d\n", FeatureParaLen);
+				kfree(pFeaturePara);
+				return -EINVAL;
+			}
 
 		if (buf_size > PDAF_DATA_SIZE) {
 			kfree(pFeaturePara);
@@ -2120,6 +2383,50 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 		*(pFeaturePara_64 + 1) = (uintptr_t) usr_ptr;
 	}
 	break;
+	case SENSOR_FEATURE_SET_TEST_PATTERN:
+		{
+			pr_debug("SENSOR_FEATURE_SET_TEST_PATTERN");
+			pFeaturePara_64 = (unsigned long long *)pFeaturePara;
+			usr_ptr =
+				(void *)(uintptr_t)(*(pFeaturePara_64 + 1));
+			if (usr_ptr) {
+				if (FeatureParaLen < 2 * sizeof(unsigned long long)) {
+					pr_debug("FeatureParaLen is too small %d\n",
+					FeatureParaLen);
+					kfree(pFeaturePara);
+					return -EINVAL;
+				}
+				pData = kmalloc(sizeof(struct SET_SENSOR_PATTERN_SOLID_COLOR),
+					GFP_KERNEL);
+
+				if (pData == NULL) {
+					kfree(pFeaturePara);
+					pr_debug("No color data %d\n");
+					return -ENOMEM;
+				}
+				memset(pData, 0x0,
+					sizeof(struct SET_SENSOR_PATTERN_SOLID_COLOR));
+
+				if (copy_from_user
+					((void *)pData, (void __user *)usr_ptr,
+					sizeof(struct SET_SENSOR_PATTERN_SOLID_COLOR))) {
+					kfree(pData);
+					pr_debug("[CAMERA_HW]ERROR: copy_from_user fail\n");
+				}
+				//pr_debug("%x %x %x %x",
+				//pData->COLOR_R, pData->COLOR_Gr,
+				//pData->COLOR_Gb, pData->COLOR_B);
+				if (pFeaturePara_64 != NULL)
+					*(pFeaturePara_64 + 1) = (uintptr_t)pData;
+			}
+			ret = imgsensor_sensor_feature_control(psensor,
+					pFeatureCtrl->FeatureId,
+					(unsigned char *)pFeaturePara,
+					(unsigned int *)&FeatureParaLen);
+
+			kfree(pData);
+		}
+		break;
 
 	default:
 		ret = imgsensor_sensor_feature_control(
@@ -2226,6 +2533,7 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY:
 	case SENSOR_FEATURE_GET_SENSOR_HDR_CAPACITY:
 	case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
+	case SENSOR_FEATURE_GET_AWB_REQ_BY_SCENARIO:
 	case SENSOR_FEATURE_GET_OFFSET_TO_START_OF_EXPOSURE:
 	case SENSOR_FEATURE_GET_PIXEL_RATE:
 	case SENSOR_FEATURE_SET_ISO:
@@ -2668,6 +2976,7 @@ static long imgsensor_ioctl(
 	default:
 		PK_DBG("No such command %d\n", a_u4Command);
 		i4RetValue = -EPERM;
+		goto CAMERA_HW_Ioctl_EXIT;
 		break;
 	}
 
@@ -2681,8 +2990,11 @@ static long imgsensor_ioctl(
 		goto CAMERA_HW_Ioctl_EXIT;
 	}
 
-	kfree(pBuff);
 CAMERA_HW_Ioctl_EXIT:
+	if (pBuff != NULL) {
+		kfree(pBuff);
+		pBuff = NULL;
+	}
 	return i4RetValue;
 }
 
@@ -2694,7 +3006,7 @@ static int imgsensor_open(struct inode *a_pstInode, struct file *a_pstFile)
 		imgsensor_clk_enable_all(&pgimgsensor->clk);
 
 	atomic_inc(&pgimgsensor->imgsensor_open_cnt);
-	PK_DBG(
+	pr_info(
 	    "%s %d\n",
 	    __func__,
 	    atomic_read(&pgimgsensor->imgsensor_open_cnt));
@@ -2724,7 +3036,7 @@ static int imgsensor_release(struct inode *a_pstInode, struct file *a_pstFile)
 		imgsensor_dfs_ctrl(DFS_RELEASE, NULL);
 #endif
 	}
-	PK_DBG(
+	pr_info(
 	    "%s %d\n",
 	    __func__,
 	    atomic_read(&pgimgsensor->imgsensor_open_cnt));
@@ -2892,7 +3204,7 @@ static struct platform_driver gimgsensor_platform_driver = {
  */
 static int __init imgsensor_init(void)
 {
-	PK_DBG("[camerahw_probe] start\n");
+	pr_info("[camerahw_probe] start\n");
 
 	if (platform_driver_register(&gimgsensor_platform_driver)) {
 		PK_DBG("failed to register CAMERA_HW driver\n");

@@ -11,6 +11,7 @@
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/fb.h>
+#include <linux/touchscreen_info.h>
 #ifdef CONFIG_MTK_MT6306_GPIO_SUPPORT
 #include <mtk_6306_gpio.h>
 #endif
@@ -42,6 +43,15 @@ struct pinctrl *pinctrl1;
 struct pinctrl_state *pins_default;
 struct pinctrl_state *eint_as_int, *eint_output0,
 		*eint_output1, *rst_output0, *rst_output1;
+
+#ifdef CONFIG_HQ_PROJECT_OT8
+    /* modify code for OT8 */
+extern enum tp_module_used tp_is_used;
+#else
+    /* modify code for O6 */
+enum tp_module_used tp_is_used = UNKNOWN_TP;
+#endif
+
 const struct of_device_id touch_of_match[] = {
 	{ .compatible = "mediatek,touch", },
 	{},
@@ -419,7 +429,14 @@ static int tpd_fb_notifier_callback(
 	int err = 0;
 
 	TPD_DEBUG("%s\n", __func__);
-	if(!tpd_load_status){
+#if 0
+    /* modify code for OT8 */
+	if ((event != FB_EVENT_BLANK) && (event != FB_EARLY_EVENT_BLANK)){
+	TPD_DMESG("do not care this event\n");
+
+#endif
+    /* modify code for O6 */
+		if(!tpd_load_status){
 		return 0;
 	}
 	TPD_DEBUG("%d\n", tpd_load_status);
@@ -570,7 +587,22 @@ static ssize_t mtk_tpd_proc_getinfo_read(struct file *filp, char __user *buff, s
 {
         int rc = 0;
 	char tp_info_buf[150] = {0};
+#if 0
+    /* modify code for OT8 */
+	/*TabA7 Lite code for OT8-5106 by hehaoran at 20210805 start*/
+	snprintf(tp_info_buf, 150, "IC_MODULE: %s,TOUCH_VER: %X\n",mtp_chip_name,mtp_fw_ver);
+	/*TabA7 Lite code for OT8-5106 by hehaoran at 20210805 start*/
+#endif
+    /* modify code for O6 */
+/* hs04 code for SR-AL6398A-01-676 by tangsumian1 at 20220722 start*/
+#ifdef CONFIG_HQ_PROJECT_HS04
+	snprintf(tp_info_buf, 150, "IC_NAME: %s,TOUCH_VER: %02X\n",mtp_chip_name,mtp_fw_ver&0xff);
+#else
 	snprintf(tp_info_buf, 150, "IC_NAME: %s,TOUCH_VER: %X\n",mtp_chip_name,mtp_fw_ver);
+#endif
+/* hs04 code for SR-AL6398A-01-676 by tangsumian1 at 20220722 end*/
+
+
 	rc = simple_read_from_buffer(buff, size, pPos, tp_info_buf, strlen(tp_info_buf));
 	return rc;
 }
@@ -605,6 +637,17 @@ int mtk_tpd_smart_wakeup_support(void)
 	return smart_wakeup_open_flag;
 }
 EXPORT_SYMBOL(mtk_tpd_smart_wakeup_support);
+
+static int tpd_input_open(struct input_dev *dev)
+{
+	tpd->tp_is_enabled = 1;
+	return 0;
+}
+static void tpd_input_close(struct input_dev *dev)
+{
+    tpd->tp_is_enabled = 0;
+}
+
 /* touch panel probe */
 static int tpd_probe(struct platform_device *pdev)
 {
@@ -680,7 +723,14 @@ static int tpd_probe(struct platform_device *pdev)
 	if (2560 == TPD_RES_X)
 		TPD_RES_X = 2048;
 	if (1600 == TPD_RES_Y)
-		TPD_RES_Y = 1536;
+#if 0
+    /* modify code for OT8 */
+		TPD_RES_Y = 1536
+#endif
+    /* modify code for O6 */
+		TPD_RES_Y = 1600;
+
+
 	pr_debug("mtk_tpd: TPD_RES_X = %lu, TPD_RES_Y = %lu\n",
 		TPD_RES_X, TPD_RES_Y);
 
@@ -691,6 +741,9 @@ static int tpd_probe(struct platform_device *pdev)
 	tpd_mode_keypad_tolerance = TPD_RES_X * TPD_RES_X / 1600;
 	/* struct input_dev dev initialization and registration */
 	tpd->dev->name = TPD_DEVICE;
+
+	tpd->tp_is_enabled = 1;
+
 	set_bit(EV_ABS, tpd->dev->evbit);
 	set_bit(EV_KEY, tpd->dev->evbit);
 	set_bit(ABS_X, tpd->dev->absbit);
@@ -726,7 +779,20 @@ static int tpd_probe(struct platform_device *pdev)
 			/* touch_type:0: r-touch, 1: C-touch */
 			touch_type = 0;
 			g_tpd_drv->tpd_local_init();
-			TPD_DMESG("Generic touch panel driver\n");
+#if 0
+    /* modify code for OT8 */
+		TPD_DMESG("Generic touch panel driver\n");
+#endif
+    /* modify code for O6 */
+	/* HS03S code for DEVAL5625-30 by gaozhengwei at 2021/05/06 start */
+	if (tp_is_used != UNKNOWN_TP) {
+		TPD_DMESG("Generic touch panel driver\n");
+	} else {
+		TPD_DMESG("we have checked all touch driver, but no touch driver is loaded!!\n");
+		return 0;
+	}
+	/* HS03S code for DEVAL5625-30 by gaozhengwei at 2021/05/06 end */
+
 		} else {
 			TPD_DMESG("no touch driver is loaded!!\n");
 			return 0;
@@ -775,6 +841,9 @@ static int tpd_probe(struct platform_device *pdev)
 	input_abs_set_res(tpd->dev, ABS_Y, TPD_RES_Y);
 	input_set_abs_params(tpd->dev, ABS_PRESSURE, 0, 255, 0, 0);
 	input_set_abs_params(tpd->dev, ABS_MT_TRACKING_ID, 0, 10, 0, 0);
+
+	tpd->dev->open = tpd_input_open;
+	tpd->dev->close = tpd_input_close;
 
 	if (input_register_device(tpd->dev))
 		TPD_DMESG("input_register_device failed.(tpd)\n");

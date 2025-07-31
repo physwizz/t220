@@ -65,6 +65,39 @@
 #endif
 #include <linux/nvmem-consumer.h>
 
+/* hs03s code for SR-AL5625-01-247 by zhuqiang at 2021/04/23 start */
+#include <linux/of_gpio.h>
+/* hs03s code for SR-AL5625-01-247 by zhuqiang at 2021/04/23 end */
+
+#include "mtk-soc-speaker-amp.h"
+
+/*hs04 code for SR-AL6398A-01-121|DEAL6398A-483 by hujincan at 2022/08/05 start*/
+#ifdef COMPATIBLE_PA_SUPPORT
+#include <linux/spinlock.h>
+/*Change TLatch(for AW87XX) to 500us to ensure successfully lock mode*/
+#define FS15XX_START  500        // 200us < t < 1000us(for FS15XX)
+#define FS15XX_PULSE_DELAY_US 10 // 2us < t < 150us
+#define FS15XX_T_WORK  300       // pull up gpio > 220us
+#define FS15XX_T_PWD  5000       // Tswton suggest to be 3ms+ between each mode
+#define FS15XX_RETRY  (10)
+#define FS15XX_OFF_MODE 0
+#define FS15XX_OPEN_MODE 4
+
+#define AW87XX_OFF_MODE 0
+/*hs04 code for DEAL6398A-1686 by hujincan at 2022/09/11 start*/
+#define AW87XX_OPEN_MODE 1
+/*hs04 code for DEAL6398A-1686 by hujincan at 2022/09/11 end*/
+#define AW87XX_PULSE_DELAY_US 2
+
+static DEFINE_SPINLOCK(fs15xx_lock);
+#endif
+/*hs04 code for SR-AL6398A-01-121|DEAL6398A-483 by hujincan at 2022/08/05 end*/
+
+/*TabA7 Lite code for OT8-5362 by yingboyang at 20220314 start*/
+#ifdef CONFIG_SND_SOC_AW87XXX
+extern int aw87xxx_add_codec_controls(void *codec);
+#endif
+/*TabA7 Lite code for OT8-5362 by yingboyang at 20220314 end*/
 /* Use analog setting to do dc compensation */
 #define ANALOG_HPTRIM
 //#define ANALOG_HPTRIM_FOR_CUST
@@ -160,6 +193,16 @@ int (*set_lch_dc_compensation)(int value) = NULL;
 int (*set_rch_dc_compensation)(int value) = NULL;
 int (*set_ap_dmic)(bool enable) = NULL;
 int (*set_hp_impedance_ctl)(bool enable) = NULL;
+/*TabA7 Lite code for OT8-5362 by yingboyang at 20220314 start*/
+#ifdef CONFIG_SND_SOC_AW87XXX
+    extern int aw87xxx_set_profile(int dev_index, char *profile);
+    static char *aw_profile[] = {"Music", "Off"};/*aw87xxx_acf.bin 文件中配置场景*/
+    enum aw87xxx_dev_index {
+        AW_DEV_0 = 0,
+        AW_DEV_1 = 1,
+    };
+#endif
+/*TabA7 Lite code for OT8-5362 by yingboyang at 20220314 end*/
 /* Jogi: Need? @{ */
 #define SND_SOC_ADV_MT_FMTS (\
 				SNDRV_PCM_FMTBIT_S16_LE |\
@@ -184,26 +227,7 @@ int (*set_hp_impedance_ctl)(bool enable) = NULL;
 				SNDRV_PCM_RATE_CONTINUOUS |\
 				SNDRV_PCM_RATE_8000_192000)
 
-//huaqin add for aw87359 bringup by limengxia at 2020/11/20 start
-#ifdef CONFIG_SND_SOC_AW87XXX
-enum {
-	AW87XXX_OFF_MODE = 0,
-	AW87XXX_MUSIC_MODE = 1,
-	AW87XXX_VOICE_MODE = 2,
-	AW87XXX_FM_MODE = 3,
-	AW87XXX_RCV_MODE = 4,
-	AW87XXX_MODE_MAX = 5,
-};
 
-enum {
-	AW87XXX_LEFT_CHANNEL = 0,
-	AW87XXX_RIRHT_CHANNEL = 1,
-};
-
-extern unsigned char aw87xxx_show_current_mode(int32_t channel);
-extern int aw87xxx_audio_scene_load(uint8_t mode, int32_t channel);
-#endif
-//huaqin add for aw87359 bringup by limengxia at 2020/11/20 end
 
 
 static void Audio_Amp_Change(int channels, bool enable);
@@ -580,19 +604,39 @@ static void setHpGainZero(void)
 	Ana_Set_Reg(ZCD_CON2, DL_GAIN_0DB, 0x001f);
 }
 #endif
-static void Hp_Zcd_Enable(bool _enable)
+static void Zcd_Enable(bool _enable, int device)
 {
 	if (_enable) {
+		switch (device) {
+		case AUDIO_ANALOG_DEVICE_OUT_EARPIECEL:
+		case AUDIO_ANALOG_DEVICE_OUT_EARPIECER:
+			Ana_Set_Reg(AUDDEC_ANA_CON8, 0x2, 0x7);
+			break;
+		case AUDIO_ANALOG_DEVICE_OUT_SPEAKERL:
+		case AUDIO_ANALOG_DEVICE_OUT_SPEAKERR:
+			Ana_Set_Reg(AUDDEC_ANA_CON8, 0x0, 0x7);
+			break;
+		case AUDIO_ANALOG_DEVICE_OUT_SPEAKER_HEADSET_L:
+		case AUDIO_ANALOG_DEVICE_OUT_SPEAKER_HEADSET_R:
+			Ana_Set_Reg(AUDDEC_ANA_CON8, 0x1, 0x7);
+			break;
+		case AUDIO_ANALOG_DEVICE_OUT_HEADSETL:
+		case AUDIO_ANALOG_DEVICE_OUT_HEADSETR:
+		default:
+			Ana_Set_Reg(AUDDEC_ANA_CON8, 0x1, 0x7);
+			break;
+		}
 		/* Enable ZCD, for minimize pop noise */
 		/* when adjust gain during HP buffer on */
 		Ana_Set_Reg(ZCD_CON0, 0x1 << 8, 0x7 << 8);
 		Ana_Set_Reg(ZCD_CON0, 0x0 << 7, 0x1 << 7);
 		/* timeout, 1=5ms, 0=30ms */
-		Ana_Set_Reg(ZCD_CON0, 0x1 << 6, 0x1 << 6);
+		Ana_Set_Reg(ZCD_CON0, 0x0 << 6, 0x1 << 6);
 		Ana_Set_Reg(ZCD_CON0, 0x0 << 4, 0x3 << 4);
 		Ana_Set_Reg(ZCD_CON0, 0x5 << 1, 0x7 << 1);
 		Ana_Set_Reg(ZCD_CON0, 0x1 << 0, 0x1 << 0);
 	} else {
+		Ana_Set_Reg(AUDDEC_ANA_CON8, 0x4, 0x7);
 		Ana_Set_Reg(ZCD_CON0, 0x0000, 0xffff);
 	}
 }
@@ -750,7 +794,7 @@ static void OpenTrimBufferHardware(bool enable, bool buffer_on)
 		Ana_Set_Reg(AUDDEC_ANA_CON13, 0x0001, 0xffff);
 		udelay(100);
 		/* Disable AUD_ZCD */
-		Hp_Zcd_Enable(false);
+		Zcd_Enable(false, AUDIO_ANALOG_DEVICE_OUT_HEADSETL);
 		/* Enable IBIST */
 		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
 		/* Set HP DR bias current optimization, 010: 6uA */
@@ -813,8 +857,7 @@ static void OpenTrimBufferHardware(bool enable, bool buffer_on)
 		udelay(100);
 	} else {
 		/* Pull-down HPL/R to AVSS28_AUD */
-			hp_pull_down(true);
-
+		hp_pull_down(true);
 		headset_volume_ramp(mCodec_data->mAudio_Ana_Volume
 				[AUDIO_ANALOG_VOLUME_HPOUTL], DL_GAIN_N_40DB);
 		/* HPR/HPL mux to open */
@@ -901,7 +944,7 @@ static void open_trim_bufferhardware_withspk(bool enable, bool buffer_on)
 		Ana_Set_Reg(AUDDEC_ANA_CON13, 0x0001, 0xffff);
 		udelay(100);
 		/* Disable AUD_ZCD */
-		Hp_Zcd_Enable(false);
+		Zcd_Enable(false, AUDIO_ANALOG_DEVICE_OUT_HEADSETL);
 		/* Enable IBIST */
 		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
 		/* Set HP DR bias current optimization, 010: 6uA */
@@ -943,7 +986,7 @@ static void open_trim_bufferhardware_withspk(bool enable, bool buffer_on)
 			Ana_Set_Reg(AUDDEC_ANA_CON1, 0x77c3, 0x00ff);
 			Ana_Set_Reg(AUDDEC_ANA_CON1, 0x7703, 0x00ff);
 			/* disable Pull-down HPL/R to AVSS28_AUD */
-				hp_pull_down(false);
+			hp_pull_down(false);
 
 		} else {
 			/* Enable HP driver bias circuits */
@@ -962,7 +1005,7 @@ static void open_trim_bufferhardware_withspk(bool enable, bool buffer_on)
 		udelay(100);
 	} else {
 		/* Pull-down HPL/R to AVSS28_AUD */
-			hp_pull_down(true);
+		hp_pull_down(true);
 
 		/* HPR/HPL mux to open */
 		/* decrease HPL/R gain to normal gain step by step */
@@ -1051,7 +1094,7 @@ static bool OpenHeadPhoneImpedanceSetting(bool bEnable)
 		Ana_Set_Reg(AUDDEC_ANA_CON13, 0x0001, 0xffff);
 		udelay(100);
 		/* Disable AUD_ZCD */
-		Hp_Zcd_Enable(false);
+		Zcd_Enable(false, AUDIO_ANALOG_DEVICE_OUT_HEADSETL);
 		/* Enable IBIST */
 		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
 		/* Disable HPR/L STB enhance circuits */
@@ -2508,10 +2551,14 @@ static void get_hp_lr_trim_offset(void)
 {
 #ifdef ANALOG_HPTRIM
 	set_lr_trim_code();
-	set_l_trim_code_spk();
+	if (mtk_spk_get_type() == 0)
+		set_l_trim_code_spk();
 #else
 	get_hp_trim_offset();
-	spkl_dc_offset = get_spk_trim_offset(AUDIO_OFFSET_TRIM_MUX_HPL);
+	if (mtk_spk_get_type() == 0)
+		spkl_dc_offset = get_spk_trim_offset(AUDIO_OFFSET_TRIM_MUX_HPL);
+	else
+		spkl_dc_offset = 0;
 #endif
 	udelay(1000);
 	dctrim_calibrated = 2;
@@ -3034,8 +3081,8 @@ static void Audio_Amp_Change(int channels, bool enable)
 			/* Enable NV regulator (-1.2V) */
 			Ana_Set_Reg(AUDDEC_ANA_CON13, 0x0001, 0xffff);
 			udelay(100);
-			/* Disable AUD_ZCD */
-			Hp_Zcd_Enable(false);
+			/* Enable AUD_ZCD */
+			Zcd_Enable(true, AUDIO_ANALOG_DEVICE_OUT_HEADSETL);
 			/* Enable IBIST */
 			Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
 			/* Set HP DR bias current optimization, 010: 6uA */
@@ -3095,7 +3142,7 @@ static void Audio_Amp_Change(int channels, bool enable)
 			SetDcCompenSation(true);
 #endif
 			/* disable Pull-down HPL/R to AVSS28_AUD */
-				hp_pull_down(false);
+			hp_pull_down(false);
 
 
 		}
@@ -3105,7 +3152,7 @@ static void Audio_Amp_Change(int channels, bool enable)
 		    mCodec_data->mAudio_Ana_DevicePower
 			[AUDIO_ANALOG_DEVICE_OUT_HEADSETR] == false) {
 			/* Pull-down HPL/R to AVSS28_AUD */
-				hp_pull_down(true);
+			hp_pull_down(true);
 #ifndef ANALOG_HPTRIM
 			SetDcCompenSation(false);
 #endif
@@ -3156,7 +3203,7 @@ static void Audio_Amp_Change(int channels, bool enable)
 			/* Disable IBIST */
 			Ana_Set_Reg(AUDDEC_ANA_CON10, 0x1 << 8, 0x1 << 8);
 			/* Disable AUD_ZCD */
-			Hp_Zcd_Enable(false);
+			Zcd_Enable(false, AUDIO_ANALOG_DEVICE_OUT_HEADSETL);
 			/* Disable NV regulator (-1.2V) */
 			Ana_Set_Reg(AUDDEC_ANA_CON13, 0x0, 0x1);
 			/* Disable cap-less LDOs (1.5V) */
@@ -3321,7 +3368,7 @@ static int PMIC_REG_CLEAR_Set(struct snd_kcontrol *kcontrol,
 	Ana_Set_Reg(AUDDEC_ANA_CON13, 0x0001, 0xffff);
 	udelay(100);
 	/* Disable AUD_ZCD */
-	Hp_Zcd_Enable(false);
+	Zcd_Enable(false, AUDIO_ANALOG_DEVICE_OUT_HEADSETL);
 	/* Enable IBIST */
 	Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
 	/* Set HP DR bias current optimization, 010: 6uA */
@@ -3448,8 +3495,8 @@ static void Voice_Amp_Change(bool enable)
 			/* Enable NV regulator (-1.2V) */
 			Ana_Set_Reg(AUDDEC_ANA_CON13, 0x0001, 0xffff);
 			udelay(100);
-			/* Disable AUD_ZCD */
-			Hp_Zcd_Enable(false);
+			/* Enable AUD_ZCD */
+			Zcd_Enable(true, AUDIO_ANALOG_DEVICE_OUT_EARPIECEL);
 			/* Enable IBIST */
 			Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
 			/* Set HP DR bias current optimization, 010: 6uA */
@@ -3477,7 +3524,7 @@ static void Voice_Amp_Change(bool enable)
 			/* Switch HS MUX to audio DAC */
 			Ana_Set_Reg(AUDDEC_ANA_CON3, 0x009b, 0xffff);
 			/* disable Pull-down HPL/R to AVSS28_AUD */
-				hp_pull_down(false);
+			hp_pull_down(false);
 
 		}
 	} else {
@@ -3486,7 +3533,7 @@ static void Voice_Amp_Change(bool enable)
 		Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0000, 0x3 << 2);
 		if (GetDLStatus() == false) {
 			/* Pull-down HPL/R to AVSS28_AUD */
-				hp_pull_down(true);
+			hp_pull_down(true);
 			/* Disable Audio DAC */
 			Ana_Set_Reg(AUDDEC_ANA_CON0, 0x0000, 0x000f);
 			/* Disable AUD_CLK */
@@ -3505,6 +3552,8 @@ static void Voice_Amp_Change(bool enable)
 			Ana_Set_Reg(AUDDEC_ANA_CON7, 0xa8, 0xff);
 			/* Disable IBIST */
 			Ana_Set_Reg(AUDDEC_ANA_CON10, 0x1 << 8, 0x1 << 8);
+			/* Disable AUD_ZCD */
+			Zcd_Enable(false, AUDIO_ANALOG_DEVICE_OUT_EARPIECEL);
 			/* Disable NV regulator (-1.2V) */
 			Ana_Set_Reg(AUDDEC_ANA_CON13, 0x0, 0x1);
 			/* Disable cap-less LDOs (1.5V) */
@@ -3584,8 +3633,8 @@ static void Speaker_Amp_Change(bool enable)
 		/* Enable NV regulator (-1.2V) */
 		Ana_Set_Reg(AUDDEC_ANA_CON13, 0x0001, 0xffff);
 		udelay(100);
-		/* Disable AUD_ZCD */
-		Hp_Zcd_Enable(false);
+		/* Enable AUD_ZCD */
+		Zcd_Enable(true, AUDIO_ANALOG_DEVICE_OUT_SPEAKERL);
 		/* Enable IBIST */
 		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
 		/* Set HP DR bias current optimization, 010: 6uA */
@@ -3611,7 +3660,7 @@ static void Speaker_Amp_Change(bool enable)
 		/* Switch LOL MUX to audio DAC */
 		Ana_Set_Reg(AUDDEC_ANA_CON4, 0x011b, 0xffff);
 		/* disable Pull-down HPL/R to AVSS28_AUD */
-			hp_pull_down(false);
+		hp_pull_down(false);
 
 	} else {
 		pr_debug("%s(), enable %d\n", __func__, enable);
@@ -3619,7 +3668,7 @@ static void Speaker_Amp_Change(bool enable)
 		Ana_Set_Reg(AUDDEC_ANA_CON4, 0x0000, 0x3 << 2);
 		if (GetDLStatus() == false) {
 			/* Pull-down HPL/R to AVSS28_AUD */
-				hp_pull_down(true);
+			hp_pull_down(true);
 
 			/* Disable Audio DAC */
 			Ana_Set_Reg(AUDDEC_ANA_CON0, 0x0000, 0x000f);
@@ -3639,6 +3688,8 @@ static void Speaker_Amp_Change(bool enable)
 			Ana_Set_Reg(AUDDEC_ANA_CON7, 0xa8, 0xff);
 			/* Disable IBIST */
 			Ana_Set_Reg(AUDDEC_ANA_CON10, 0x1 << 8, 0x1 << 8);
+			/* Disable AUD_ZCD */
+			Zcd_Enable(false, AUDIO_ANALOG_DEVICE_OUT_SPEAKERL);
 			/* Disable NV regulator (-1.2V) */
 			Ana_Set_Reg(AUDDEC_ANA_CON13, 0x0, 0x1);
 			/* Disable cap-less LDOs (1.5V) */
@@ -3680,33 +3731,169 @@ static int Speaker_Amp_Set(struct snd_kcontrol *kcontrol,
 	}
 	return 0;
 }
+
+/* hs03s code for SR-AL5625-01-247 by zhuqiang at 2021/04/23 start */
+#ifdef ANALOG_PA_SUPPORT
+/*hs04 code for SR-AL6398A-01-121 by hujincan at 2022/07/05 start*/
+#ifndef COMPATIBLE_PA_SUPPORT
+static void Ext_Speaker_Amp_Mod(bool enable)
+{
+	int fly_pa_mode = 4;
+
+	pr_debug("%s(), Now Ctrl_mod is %d", __func__, gpio_get_value(mCodec_priv->ctrl_mod));
+	if (enable) {
+		pr_debug("%s(), Ready Open Analog PA", __func__);
+		gpio_set_value(mCodec_priv->ctrl_mod, 0);
+		udelay(10);
+		gpio_set_value(mCodec_priv->ctrl_mod, 1);
+		udelay(300); //Tsta 300
+		while(fly_pa_mode >0){
+			gpio_set_value(mCodec_priv->ctrl_mod, 0);
+			udelay(20); //Tl 20
+			gpio_set_value(mCodec_priv->ctrl_mod, 1);
+			udelay(20); //Th 20
+			fly_pa_mode--;
+		}
+		udelay(280); //Twork 300 (280+20)
+	} else {
+		pr_debug("%s(), Ready Close Analog PA", __func__);
+		gpio_set_value(mCodec_priv->ctrl_mod, 0);
+		udelay(260); //Tpwd 260
+	}
+}
+#endif
+/*hs04 code for SR-AL6398A-01-121 by hujincan at 2022/07/05 end*/
+#endif
+
+/*hs04 code for SR-AL6398A-01-121 by hujincan at 2022/07/05 start*/
+#ifdef COMPATIBLE_PA_SUPPORT
+int fs15xx_shutdown(unsigned int mod_pin)
+{
+    unsigned long gpio_flag;
+
+    spin_lock_irqsave(&fs15xx_lock, gpio_flag);
+    gpio_set_value(mod_pin, 0);
+    udelay(FS15XX_T_PWD);
+    spin_unlock_irqrestore(&fs15xx_lock, gpio_flag);
+
+    return 0;
+}
+
+int fs15xx_set_mode(int fsm_mode_new, int aw_mode_new)
+{
+    unsigned long gpio_flag;
+    static int g_fsm_mode = FS15XX_OFF_MODE;
+    static int g_aw_mode = AW87XX_OFF_MODE;
+    int count;
+    int ret = 0;
+
+    pr_info("%s(),fsm_mode_new:%d ,aw_mode_new:%d", __func__, fsm_mode_new, aw_mode_new);
+    if (fsm_mode_new > 6 || fsm_mode_new < 0 || aw_mode_new > 10 || aw_mode_new < 0) {
+        // invalid mode
+        return -1;
+    }
+
+    if ((g_fsm_mode == fsm_mode_new) && (g_aw_mode == aw_mode_new)) {
+        // the same mode and same gpio, not to switch again
+        return ret;
+    }
+
+    // switch mode online, need shut down pa firstly
+    g_fsm_mode = fsm_mode_new;
+    g_aw_mode = aw_mode_new;
+    fs15xx_shutdown(mCodec_priv->ctrl_mod);
+    if ((fsm_mode_new == FS15XX_OFF_MODE) || (aw_mode_new == AW87XX_OFF_MODE)) {
+        return 0;
+    }
+
+    // enable pa into work mode
+    // make sure idle mode: gpio output low
+    gpio_direction_output(mCodec_priv->ctrl_mod, 0);
+    spin_lock_irqsave(&fs15xx_lock, gpio_flag);
+
+    // awinic pa sequential logic
+    gpio_set_value(mCodec_priv->ctrl_mod, 1);
+    count = g_aw_mode - 1;
+    while (count > 0) {
+        udelay(AW87XX_PULSE_DELAY_US);
+        gpio_set_value(mCodec_priv->ctrl_mod, 0);
+        udelay(AW87XX_PULSE_DELAY_US);
+        gpio_set_value(mCodec_priv->ctrl_mod, 1);
+        count--;
+    }
+
+    // 1. send T-sta
+    gpio_set_value(mCodec_priv->ctrl_mod, 1);
+    udelay(FS15XX_START);
+    gpio_set_value(mCodec_priv->ctrl_mod, 0);
+    udelay(FS15XX_PULSE_DELAY_US); // < 140us
+    // 2. send mode
+    count = g_fsm_mode - 1;
+    while (count > 0) { // count of pulse
+        gpio_set_value(mCodec_priv->ctrl_mod, 1);
+        udelay(FS15XX_PULSE_DELAY_US); // < 140us 10-150
+        gpio_set_value(mCodec_priv->ctrl_mod, 0);
+        udelay(FS15XX_PULSE_DELAY_US); // < 140us
+        count--;
+    }
+
+    // 3. pull up gpio and delay, enable pa
+    gpio_set_value(mCodec_priv->ctrl_mod, 1);
+    spin_unlock_irqrestore(&fs15xx_lock, gpio_flag);
+
+    udelay(FS15XX_T_WORK); // pull up gpio > 220us
+
+    return ret;
+}
+#endif
+/*hs04 code for SR-AL6398A-01-121 by hujincan at 2022/07/05 end*/
+
+
 static void Ext_Speaker_Amp_Change(bool enable)
 {
 	pr_debug("%s(), enable %d\n", __func__, enable);
-#define SPK_WARM_UP_TIME        (25)	/* unit is ms */
+#ifdef ANALOG_PA_SUPPORT
+/*hs04 code for SR-AL6398A-01-121 by hujincan at 2022/07/05 start*/
+#ifdef COMPATIBLE_PA_SUPPORT
+	if (enable) {
+		fs15xx_set_mode(FS15XX_OPEN_MODE, AW87XX_OPEN_MODE);
+	} else {
+		fs15xx_set_mode(FS15XX_OFF_MODE, AW87XX_OFF_MODE);
+	}
+#else
+	Ext_Speaker_Amp_Mod(enable);
+#endif
+/*hs04 code for SR-AL6398A-01-121 by hujincan at 2022/07/05 end*/
+
+#else
 	if (enable) {
 		AudDrv_GPIO_EXTAMP_Select(false, 3);
 		/*udelay(1000); */
 		usleep_range(1 * 1000, 2 * 1000);
-//huaqin add for aw87359 bringup by limengxia at 2020/11/20 start
+/*TabA7 Lite code for OT8-5362 by yingboyang at 20220314 start*/
 #ifdef CONFIG_SND_SOC_AW87XXX
-		aw87xxx_audio_scene_load(AW87XXX_MUSIC_MODE, AW87XXX_LEFT_CHANNEL);
-		aw87xxx_audio_scene_load(AW87XXX_MUSIC_MODE, AW87XXX_RIRHT_CHANNEL);
+    /*切换 PA AW_DEV_0 为 Music 场景*/
+    aw87xxx_set_profile(AW_DEV_0, aw_profile[0]);
+    aw87xxx_set_profile(AW_DEV_1, aw_profile[0]);
 #else
-		AudDrv_GPIO_EXTAMP_Select(true, 3);
+    AudDrv_GPIO_EXTAMP_Select(true, 3);
 #endif
 		usleep_range(5 * 1000, 10 * 1000);
-	} else {
+    } else {
 #ifdef CONFIG_SND_SOC_AW87XXX
-		aw87xxx_audio_scene_load(AW87XXX_OFF_MODE, AW87XXX_LEFT_CHANNEL);
-		aw87xxx_audio_scene_load(AW87XXX_OFF_MODE, AW87XXX_RIRHT_CHANNEL);
+    /*切换 PA AW_DEV_0 为 Off 场景*/
+    aw87xxx_set_profile(AW_DEV_0, aw_profile[1]);
+    aw87xxx_set_profile(AW_DEV_1, aw_profile[1]);
 #else
-		AudDrv_GPIO_EXTAMP_Select(false, 3);
+    AudDrv_GPIO_EXTAMP_Select(false, 3);
 #endif
+/*TabA7 Lite code for OT8-5362 by yingboyang at 20220314 end*/
 //huaqin add for aw87359 bringup by limengxia at 2020/11/20 end
 		udelay(500);
 	}
+#endif
 }
+/* hs03s code for SR-AL5625-01-247 by zhuqiang at 2021/04/23 end */
 static int Ext_Speaker_Amp_Get(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
@@ -3747,7 +3934,9 @@ static int Ext_Speaker_Amp_Set(struct snd_kcontrol *kcontrol,
 	}
 	return 0;
 }
-
+/*huaqin add for factory speaker by wangzhe at 2022/2/18 start*/
+#ifdef CONFIG_HQ_PROJECT_OT8
+    /* modify code for OT8 */
 /*huaqin add for factory speaker by limengxia at 2020/12/7 start*/
 static int aw_ampl_status;
 static int AW_Speaker_AmpL_Get(struct snd_kcontrol *kcontrol,
@@ -3763,11 +3952,13 @@ static int AW_Speaker_AmpL_Set(struct snd_kcontrol *kcontrol,
 	pr_debug("%s() gain = %ld\n ", __func__,
 		 ucontrol->value.integer.value[0]);
 	if (ucontrol->value.integer.value[0]) {
-		aw87xxx_audio_scene_load(AW87XXX_MUSIC_MODE, AW87XXX_LEFT_CHANNEL);
+		/*TabA7 Lite code for OT8-5362 by yingboyang at 20220314 start*/
+		aw87xxx_set_profile(AW_DEV_0, aw_profile[0]);
 		aw_ampl_status = ucontrol->value.integer.value[0];
 	} else {
 		aw_ampl_status = ucontrol->value.integer.value[0];
-		aw87xxx_audio_scene_load(AW87XXX_OFF_MODE, AW87XXX_LEFT_CHANNEL);
+		aw87xxx_set_profile(AW_DEV_0, aw_profile[1]);
+		/*TabA7 Lite code for OT8-5362 by yingboyang at 20220314 end*/
 	}
 	return 0;
 }
@@ -3786,15 +3977,19 @@ static int AW_Speaker_AmpR_Set(struct snd_kcontrol *kcontrol,
 	pr_debug("%s() gain = %ld\n ", __func__,
 		 ucontrol->value.integer.value[0]);
 	if (ucontrol->value.integer.value[0]) {
-		aw87xxx_audio_scene_load(AW87XXX_MUSIC_MODE, AW87XXX_RIRHT_CHANNEL);
+		/*TabA7 Lite code for OT8-5362 by yingboyang at 20220314 start*/
+		aw87xxx_set_profile(AW_DEV_1, aw_profile[0]);
 		aw_ampr_status = ucontrol->value.integer.value[0];
 	} else {
 		aw_ampr_status = ucontrol->value.integer.value[0];
-		aw87xxx_audio_scene_load(AW87XXX_OFF_MODE, AW87XXX_RIRHT_CHANNEL);
+		aw87xxx_set_profile(AW_DEV_1, aw_profile[1]);
+		/*TabA7 Lite code for OT8-5362 by yingboyang at 20220314 end*/
 	}
 	return 0;
 }
 /*huaqin add for factory speaker by limengxia at 2020/12/7 end*/
+#endif
+/*huaqin add for factory speaker by wangzhe at 2022/2/18 end*/
 static void Receiver_Speaker_Switch_Change(bool enable)
 {
 #ifndef CONFIG_FPGA_EARLY_PORTING
@@ -3900,8 +4095,8 @@ static void Headset_Speaker_Amp_Change(bool enable)
 		/* Enable NV regulator (-1.2V) */
 		Ana_Set_Reg(AUDDEC_ANA_CON13, 0x0001, 0xffff);
 		udelay(100);
-		/* Disable AUD_ZCD */
-		Hp_Zcd_Enable(false);
+		/* Enable AUD_ZCD */
+		Zcd_Enable(true, AUDIO_ANALOG_DEVICE_OUT_SPEAKER_HEADSET_L);
 		/* Enable IBIST */
 		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
 		/* Set HP DR bias current optimization, 010: 6uA */
@@ -3955,11 +4150,11 @@ static void Headset_Speaker_Amp_Change(bool enable)
 		SetDcCompenSation_spk2hp(true);
 #endif
 		/* disable Pull-down HPL/R to AVSS28_AUD */
-			hp_pull_down(false);
+		hp_pull_down(false);
 
 	} else {
 		/* Pull-down HPL/R to AVSS28_AUD */
-			hp_pull_down(true);
+		hp_pull_down(true);
 #ifndef ANALOG_HPTRIM
 		SetDcCompenSation_spk2hp(false);
 #endif
@@ -4009,6 +4204,8 @@ static void Headset_Speaker_Amp_Change(bool enable)
 			Ana_Set_Reg(AUDDEC_ANA_CON7, 0xa8, 0xff);
 			/* Disable IBIST */
 			Ana_Set_Reg(AUDDEC_ANA_CON10, 0x1 << 8, 0x1 << 8);
+			/* Disable AUD_ZCD */
+			Zcd_Enable(false, AUDIO_ANALOG_DEVICE_OUT_SPEAKER_HEADSET_L);
 			/* Disable NV regulator (-1.2V) */
 			Ana_Set_Reg(AUDDEC_ANA_CON13, 0x0, 0x1);
 			/* Disable cap-less LDOs (1.5V) */
@@ -4475,10 +4672,15 @@ static const struct soc_enum Audio_DL_Enum[] = {
 			    dctrim_control_state),
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(apply_n12db_setting),
 			    apply_n12db_setting),
+/*huaqin add for factory speaker by wangzhe at 2022/2/18 start*/
+#ifdef CONFIG_HQ_PROJECT_OT8
+    /* modify code for OT8 */
 /*huaqin add for factory speaker by limengxia at 2020/12/7 start*/
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(amp_function), amp_function),
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(amp_function), amp_function),
 /*huaqin add for factory speaker by limengxia at 2020/12/7 end*/
+#endif
+/*huaqin add for factory speaker by wangzhe at 2022/2/18 end*/
 };
 static const struct snd_kcontrol_new mt6357_snd_controls[] = {
 	SOC_ENUM_EXT("Audio_Amp_R_Switch", Audio_DL_Enum[0], Audio_AmpR_Get,
@@ -4532,6 +4734,9 @@ static const struct snd_kcontrol_new mt6357_snd_controls[] = {
 		     hp_plugged_in_get, hp_plugged_in_set),
 	SOC_ENUM_EXT("Apply_N12DB_Gain", Audio_DL_Enum[14],
 		     apply_n12db_get, apply_n12db_set),
+/*huaqin add for factory speaker by wangzhe at 2022/2/18 start*/
+#ifdef CONFIG_HQ_PROJECT_OT8
+    /* modify code for OT8 */
 /*huaqin add for factory speaker by limengxia at 2020/12/7 start*/
 	SOC_ENUM_EXT("AW_Speaker_AmpL_Switch", Audio_DL_Enum[15],
 		     AW_Speaker_AmpL_Get,
@@ -4540,6 +4745,8 @@ static const struct snd_kcontrol_new mt6357_snd_controls[] = {
 		     AW_Speaker_AmpR_Get,
 		     AW_Speaker_AmpR_Set),
 /*huaqin add for factory speaker by limengxia at 2020/12/7 end*/
+#endif
+/*huaqin add for factory speaker by wangzhe at 2022/2/18 end*/
 };
 void SetMicPGAGain(void)
 {
@@ -4592,11 +4799,11 @@ static bool TurnOnADcPowerACC(int ADCType, bool enable)
 				Ana_Set_Reg(AUDENC_ANA_CON8, 0x0021, 0xffff);
 			} else if (mCodec_data->mAudio_Ana_Mux
 					[AUDIO_MICSOURCE_MUX_IN_1] == 1) {
+				/* hs03s code for SR-AL5625-01-245 by zhuqiang at 2021/04/23 start */
 				/* headset mic */
-				/* Enable MICBIAS1, MISBIAS1 = 2P6V */
-				/* huaqin change for headset biasmic by limengxia at 2020/11/23 start */
+				/* Enable MICBIAS1, MISBIAS1 = 2P7V */
 				Ana_Set_Reg(AUDENC_ANA_CON9, 0x0071, 0x0071);
-				/* huaqin change for headset biasmic by limengxia at 2020/11/23 end */
+				/* hs03s code for SR-AL5625-01-245 by zhuqiang at 2021/04/23 end */
 			}
 			SetMicPGAGain();
 		}
@@ -5916,20 +6123,51 @@ static int read_efuse_hp_impedance_current_calibration(void)
 	unsigned short efuse_val = 0;
 
 	pr_info("+%s()\n", __func__);
-
+#ifndef AUDIO_USING_WRAP
+	/* 1. enable efuse ctrl engine clock */
+	Ana_Set_Reg(TOP_CKHWEN_CON0_CLR, 0x1 << 2, 0x1 << 2);
+	Ana_Set_Reg(TOP_CKPDN_CON0_CLR, 0x1 << 4, 0x1 << 4);
+	/* 2. set RG_OTP_RD_SW */
+	Ana_Set_Reg(OTP_CON11, 0x0001, 0x0001);
+	/* 3. set EFUSE addr */
 	/* HPDET_COMP[6:0] @ efuse bit 1392 ~ 1398 */
 	/* HPDET_COMP_SIGN @ efuse bit 1399 */
 	/* 1392 / 8 = 174 --> 0xae */
+	Ana_Set_Reg(OTP_CON0, 0xae, 0xff);
+	/* 4. Toggle RG_OTP_RD_TRIG */
+	ret = Ana_Get_Reg(OTP_CON8);
+	if (ret == 0)
+		Ana_Set_Reg(OTP_CON8, 0x0001, 0x0001);
+	else
+		Ana_Set_Reg(OTP_CON8, 0x0000, 0x0001);
+	/* 5. Polling RG_OTP_RD_BUSY */
+	do {
+		ret = Ana_Get_Reg(OTP_CON13) & 0x0001;
+		usleep_range(100, 200);
+		pr_info("%s(), polling OTP_CON13 = 0x%x\n", __func__, ret);
+	} while (ret == 1);
+	/* Need to delay at least 1ms for 0xC1A and than can read */
+	usleep_range(500, 1000);
+	/* 6. Read RG_OTP_DOUT_SW */
+	efuse_val = Ana_Get_Reg(OTP_CON12);
+	pr_info("%s(), efuse = 0x%x\n", __func__, efuse_val);
+#else
 	ret = nvmem_device_read(mCodec_priv->hp_efuse, 0xae, 2, &efuse_val);
 	if (ret < 0) {
 		dev_err(mCodec_priv->dev, "%s(), efuse read fail: %d\n",
 			__func__, ret);
 		efuse_val = 0;
 	}
+#endif
 	sign = (efuse_val >> 7) & 0x1;
 	value = efuse_val & 0x7f;
 	value = sign ? -value : value;
-
+#ifndef AUDIO_USING_WRAP
+	/* 7. Disables efuse_ctrl egine clock */
+	Ana_Set_Reg(OTP_CON11, 0x0000, 0x0001);
+	Ana_Set_Reg(TOP_CKPDN_CON0_SET, 0x1 << 4, 0x1 << 4);
+	Ana_Set_Reg(TOP_CKHWEN_CON0_SET, 0x1 << 2, 0x1 << 2);
+#endif
 	pr_info("-%s(), efuse: %d\n", __func__, value);
 	return value;
 }
@@ -5950,6 +6188,8 @@ static void mt6357_codec_init_reg(struct snd_soc_component *component)
 	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x1 << 4, 0x1 << 4);
 	/* disable LO buffer left short circuit protection */
 	Ana_Set_Reg(AUDDEC_ANA_CON4, 0x1 << 4, 0x1 << 4);
+	/* AUDENC_ANA_CON10 bit12 EINTHIRENB 0:2M 1:500k */
+	Ana_Set_Reg(AUDENC_ANA_CON10, 0x1c07, 0xffff);
 	/* set gpio */
 	set_playback_gpio(false);
 	set_capture_gpio(false);
@@ -5992,6 +6232,7 @@ static void InitGlobalVarDefault(void)
 static struct task_struct *dc_trim_task;
 static int dc_trim_thread(void *arg)
 {
+	/* Default Pull-down HPL/R to AVSS28_AUD */
 	if (always_pull_down_enable)
 		hp_pull_down(true);
 
@@ -6019,6 +6260,15 @@ static int mt6357_component_probe(struct snd_soc_component *component)
 				   ARRAY_SIZE(mt6357_pmic_Test_controls));
 	snd_soc_add_component_controls(component, Audio_snd_auxadc_controls,
 				   ARRAY_SIZE(Audio_snd_auxadc_controls));
+/*TabA7 Lite code for OT8-5362 by yingboyang at 20220314 start*/
+#ifdef CONFIG_SND_SOC_AW87XXX
+    ret = aw87xxx_add_codec_controls((void *)component);
+    if (ret < 0) {
+        pr_err("%s: add_codec_controls failed, err %d\n" , __func__ , ret);
+        return ret;
+    }
+#endif
+/*TabA7 Lite code for OT8-5362 by yingboyang at 20220314 end*/
 	/* here to set  private data */
 	mCodec_data = kzalloc(sizeof(struct mt6357_codec_priv), GFP_KERNEL);
 	if (!mCodec_data) {
@@ -6104,7 +6354,7 @@ static int mtk_codec_dev_probe(struct platform_device *pdev)
 #endif
 	if (IS_ERR(mCodec_priv->regmap))
 		return PTR_ERR(mCodec_priv->regmap);
-
+#ifdef AUDIO_USING_WRAP
 	/* get pmic efuse handler */
 	mCodec_priv->hp_efuse = devm_nvmem_device_get(&pdev->dev,
 						      "pmic-hp-efuse");
@@ -6115,7 +6365,7 @@ static int mtk_codec_dev_probe(struct platform_device *pdev)
 				ret);
 		return ret;
 	}
-
+#endif
 	dev_set_drvdata(&pdev->dev, mCodec_priv);
 	mCodec_priv->dev = &pdev->dev;
 
@@ -6143,11 +6393,12 @@ static int mtk_codec_dev_probe(struct platform_device *pdev)
 
 	mt63xx_set_local_priv(mCodec_priv);
 
-	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(64);
+	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 	if (pdev->dev.dma_mask == NULL)
 		pdev->dev.dma_mask = &pdev->dev.coherent_dma_mask;
 	if (pdev->dev.of_node) {
 		dev_set_name(&pdev->dev, "%s", MT_SOC_CODEC_NAME);
+		pdev->name = pdev->dev.kobj.name;
 		/* check if use hp depop flow */
 		of_property_read_u32(pdev->dev.of_node,
 				     "use_hp_depop_flow",
@@ -6180,6 +6431,33 @@ static int mtk_codec_dev_probe(struct platform_device *pdev)
 	} else {
 		pr_debug("%s(), pdev->dev.of_node = NULL!!!\n", __func__);
 	}
+
+/* hs03s code for SR-AL5625-01-247 by zhuqiang at 2021/04/23 start */
+#ifdef ANALOG_PA_SUPPORT
+	mCodec_priv->ctrl_mod = of_get_named_gpio(pdev->dev.of_node, "ctrl-mod", 0);
+	if (mCodec_priv->ctrl_mod < 0) {
+		pr_err("%s(), get ctrl-mod fail!\n", __func__);
+	}
+	if (gpio_is_valid(mCodec_priv->ctrl_mod)) {
+		if (gpio_request(mCodec_priv->ctrl_mod, "ctrl-mod") < 0) {
+			pr_err("%s(), gpio_request ctrl-mod fail\n", __func__);
+		}
+/*hs04 code for SR-AL6398A-01-121 by hujincan at 2022/07/05 start*/
+/* hs04 Foursemi PA chip contains this part of logic, no longer need */
+#ifdef CONFIG_HQ_PROJECT_HS03S
+/* hs03s code for SR-AL5625-01-247 by xiazhongzhou at 2021/04/28 start */
+		gpio_set_value(mCodec_priv->ctrl_mod, 0);
+		udelay(20); //Tl 20
+		gpio_set_value(mCodec_priv->ctrl_mod, 1);
+		udelay(500); //Th 500
+		gpio_set_value(mCodec_priv->ctrl_mod, 0);
+/* hs03s code for SR-AL5625-01-247 by xiazhongzhou at 2021/04/28 end */
+#endif
+/*hs04 code for SR-AL6398A-01-121 by hujincan at 2022/07/05 end*/
+	}
+#endif
+/* hs03s code for SR-AL5625-01-247 by zhuqiang at 2021/04/23 end */
+
 	pr_info("%s: dev name %s\n", __func__, dev_name(&pdev->dev));
 	return devm_snd_soc_register_component(&pdev->dev,
 				      &mt6357_component_driver,

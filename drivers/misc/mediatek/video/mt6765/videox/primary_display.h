@@ -17,6 +17,11 @@
 #endif
 #include "mt-plat/mtk_smi.h"
 #include "mtk_smi.h"
+/*hs04 code for DEAL6398A-1875 by zhawei at 20221017 start */
+#if defined (CONFIG_HQ_PROJECT_HS04) || defined (CONFIG_HQ_PROJECT_HS03S)
+#include <linux/gpio.h>
+#endif
+/*hs04 code for DEAL6398A-1875 by zhawei at 20221017 end */
 
 
 #ifdef MTK_FB_MMDVFS_SUPPORT
@@ -90,6 +95,11 @@ extern unsigned int arr_fps_enable;
 extern unsigned int round_corner_offset_enable;
 extern bool g_force_cfg;
 extern unsigned int g_force_cfg_id;
+/*hs04 code for DEAL6398A-1875 by zhawei at 20221017 start*/
+#if defined (CONFIG_HQ_PROJECT_HS04) || defined (CONFIG_HQ_PROJECT_HS03S)
+extern int lcm_bias_state;
+#endif
+/*hs04 code for DEAL6398A-1875 by zhawei at 20221017 end */
 
 struct DISP_LAYER_INFO {
 	unsigned int id;
@@ -459,15 +469,16 @@ int primary_display_get_lcm_refresh_rate(void);
 int _display_set_lcm_refresh_rate(int fps);
 void primary_display_idlemgr_kick(const char *source, int need_lock);
 void primary_display_idlemgr_enter_idle(int need_lock);
+void primary_display_update_present_fence(struct cmdqRecStruct *cmdq_handle,
+	unsigned int fence_idx);
+void primary_display_wakeup_pf_thread(void);
 void primary_display_switch_esd_mode(int mode);
 int primary_display_cmdq_set_reg(unsigned int addr, unsigned int val);
 int primary_display_vsync_switch(int method);
 int primary_display_setlcm_cmd(unsigned int *lcm_cmd, unsigned int *lcm_count,
 	unsigned int *lcm_value);
 int primary_display_mipi_clk_change(unsigned int clk_value);
-void primary_display_wakeup_pf_thread(void);
-void primary_display_update_present_fence(struct cmdqRecStruct *cmdq_handle,
-	unsigned int fence_idx);
+
 void _cmdq_insert_wait_frame_done_token_mira(void *handle);
 int primary_display_get_max_layer(void);
 long primary_display_wait_state(enum DISP_POWER_STATE state, long timeout);

@@ -69,6 +69,10 @@
 #define HX_MOD_KSYM_HX83102 HX_MOD_KSYM_HX83102
 #endif
 
+#if defined(__HIMAX_HX83121_MOD__)
+#define HX_MOD_KSYM_HX83121 HX_MOD_KSYM_HX83121
+#endif
+
 #if defined(__HIMAX_HX83103_MOD__)
 #define HX_MOD_KSYM_HX83103 HX_MOD_KSYM_HX83103
 #endif
@@ -95,6 +99,10 @@
 
 #if defined(__HIMAX_HX83192_MOD__)
 #define HX_MOD_KSYM_HX83192 HX_MOD_KSYM_HX83192
+#endif
+
+#if defined(__HIMAX_HX83121_MOD__)
+#define HX_MOD_KSYM_HX83121 HX_MOD_KSYM_HX83121
 #endif
 
 /* CORE_INIT */
@@ -138,6 +146,7 @@ extern unsigned long CFG_VER_MIN_FLASH_ADDR;
 extern unsigned long CID_VER_MAJ_FLASH_ADDR;
 extern unsigned long CID_VER_MIN_FLASH_ADDR;
 extern uint32_t CFG_TABLE_FLASH_ADDR;
+extern uint32_t CFG_TABLE_FLASH_ADDR_T;
 
 extern unsigned char IC_CHECKSUM;
 #if defined(HX_EXCP_RECOVERY)
@@ -430,10 +439,10 @@ struct hx_guest_info {
 	#define driver_data_fw_define_flash_reload_dis          0x0000a55a
 	#define driver_data_fw_define_flash_reload_en           0x00000000
 	#define driver_addr_fw_define_int_is_edge               0x10007088
-	#define driver_addr_fw_define_rxnum_txnum_maxpt         0x100070f4
+	#define driver_addr_fw_define_rxnum_txnum               0x100070f4
 	#define driver_data_fw_define_rxnum_txnum_maxpt_sorting 0x00000008
 	#define driver_data_fw_define_rxnum_txnum_maxpt_normal  0x00000014
-	#define driver_addr_fw_define_xy_res_enable             0x100070f8
+	#define driver_addr_fw_define_maxpt_xyrvs               0x100070f8
 	#define driver_addr_fw_define_x_y_res                   0x100070fc
 	#define driver_data_df_rx                               36
 	#define driver_data_df_tx                               18
@@ -508,9 +517,9 @@ enum bin_desc_map_table {
  *CFG_VER = 0x10000005,
  *};
  **/
-/*TabA7 Lite code for OT8-1408 by liupengtao at 20210125 start*/
-extern uint32_t dbg_reg_ary[7];
-/*TabA7 Lite code for OT8-1408 by liupengtao at 20210125 end*/
+
+extern uint32_t dbg_reg_ary[4];
+
 struct ic_operation {
 	uint8_t addr_ahb_addr_byte_0[1];
 	uint8_t addr_ahb_rdata_byte_0[1];
@@ -608,10 +617,6 @@ struct fw_operation {
 	uint8_t data_ulpm_22[1];
 	uint8_t data_ulpm_33[1];
 	uint8_t data_ulpm_aa[1];
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-	uint8_t addr_hand_blade_addr[4];
-	uint8_t data_hand_blade_en[4];
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
 };
 
 struct flash_operation {
@@ -658,8 +663,8 @@ struct driver_operation {
 	uint8_t addr_fw_define_flash_reload[4];
 	uint8_t addr_fw_define_2nd_flash_reload[4];
 	uint8_t addr_fw_define_int_is_edge[4];
-	uint8_t addr_fw_define_rxnum_txnum_maxpt[4];
-	uint8_t addr_fw_define_xy_res_enable[4];
+	uint8_t addr_fw_define_rxnum_txnum[4];
+	uint8_t addr_fw_define_maxpt_xyrvs[4];
 	uint8_t addr_fw_define_x_y_res[4];
 	uint8_t data_df_rx[1];
 	uint8_t data_df_tx[1];
@@ -933,6 +938,8 @@ struct himax_core_fp {
 	int (*fp_fts_ctpm_fw_upgrade_with_sys_fs_124k)(unsigned char *fw,
 			int len, bool change_iref);
 	int (*fp_fts_ctpm_fw_upgrade_with_sys_fs_128k)(unsigned char *fw,
+			int len, bool change_iref);
+	int (*fp_fts_ctpm_fw_upgrade_with_sys_fs_256k)(unsigned char *fw,
 			int len, bool change_iref);
 	void (*fp_flash_dump_func)(uint8_t local_flash_command,
 			int Flash_Size, uint8_t *flash_buffer);

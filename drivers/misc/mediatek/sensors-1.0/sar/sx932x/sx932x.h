@@ -125,7 +125,9 @@
 
 #define LGE_SENSOR
 /*TabA7 Lite code for OT8-1296 by Hujincan at 20210117 start*/
-#define SAR_USB_CALIBRATION
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 start*/
+//#define SAR_USB_CALIBRATION
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 end*/
 /*TabA7 Lite code for OT8-1296 by Hujincan at 20210117 end*/
 
 /**************************************
@@ -460,6 +462,10 @@ struct sx93XX
     u8 useIrqTimer; /* older models need irq timer for pen up cases */
 
     int irqTimeout; /* msecs only set if useIrqTimer is true */
+
+    /*TabA7 Lite code for OT8-5204 by Hujincan at 20211019 start*/
+    int sx932x_ctrl1_reg_value; /*for SX932x_CTRL0_REG */
+    /*TabA7 Lite code for OT8-5204 by Hujincan at 20211019 end*/
 
     /* struct workqueue_struct *ts_workq;  */  /* if want to use non default */
     struct delayed_work dworker; /* work struct for worker function */

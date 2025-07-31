@@ -608,9 +608,15 @@ int __mtk_pdc_get_setting(struct chg_alg_device *alg, int *newvbus, int *newcur,
 	if ((now_max_watt >= pd_max_watt) || chg1_mivr || chg2_mivr) {
 		*newidx = pd->pd_boost_idx;
 		boost = true;
-	/*TabA7 Lite code for P210405-03275 by wenyaqi at 20210406 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
 	} else if (now_max_watt <= pd_min_watt) {
-	/*TabA7 Lite code for P210405-03275 by wenyaqi at 20210406 end*/
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+	} else if (now_max_watt <= pd_min_watt) {
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+	} else if (now_max_watt <= pd_min_watt || ibus > 1800) {
+#endif
 		*newidx = pd->pd_buck_idx;
 		buck = true;
 	} else {
@@ -1124,6 +1130,7 @@ static void mtk_pd_parse_dt(struct mtk_pd *pd,
 	struct device_node *np = dev->of_node;
 	u32 val;
 
+	val = 0;
 	if (of_property_read_u32(np, "min_charger_voltage", &val) >= 0)
 		pd->min_charger_voltage = val;
 	else {
@@ -1131,7 +1138,8 @@ static void mtk_pd_parse_dt(struct mtk_pd *pd,
 		pd->min_charger_voltage = V_CHARGER_MIN;
 	}
 
-	/* PD */
+	/*	 PD	 */
+	val = 0;
 	if (of_property_read_u32(np, "pd_vbus_upper_bound", &val) >= 0) {
 		pd->vbus_h = val / 1000;
 	} else {
@@ -1301,6 +1309,9 @@ static int mtk_pd_probe(struct platform_device *pdev)
 	mutex_init(&pd->access_lock);
 	mutex_init(&pd->data_lock);
 	mtk_pd_parse_dt(pd, &pdev->dev);
+	pd->bat_psy = devm_power_supply_get_by_phandle(&pdev->dev, "gauge");
+	if (IS_ERR_OR_NULL(pd->bat_psy))
+		pd_err("%s: devm power fail to get bat_psy\n", __func__);
 
 	pd->alg = chg_alg_device_register("pd", &pdev->dev,
 					pd, &pd_alg_ops, NULL);

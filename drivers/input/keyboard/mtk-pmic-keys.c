@@ -51,6 +51,10 @@
 #define RST_DU_MASK				0x3
 #define INVALID_VALUE			0
 
+/*HS03s_T code for AL5626TDEV-701 by yuli at 2022/10/30 start*/
+extern void get_volumedown_state(int keycode,int pressed);
+extern void get_power_state(int keycode,int pressed);
+/*HS03s_T code for AL5626TDEV-701 by yuli at 2022/10/30 end*/
 struct mtk_pmic_keys_regs {
 	u32 deb_reg;
 	u32 deb_mask;
@@ -161,11 +165,6 @@ enum mtk_pmic_keys_lp_mode {
 	LP_TWOKEY,
 };
 
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 start*/
-extern void power_homekey_pressed(int keycode);
-extern void power_homekey_released(int keycode);
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 end*/
-
 struct mtk_pmic_keys *keys;
 
 static void mtk_pmic_keys_lp_reset_setup(struct mtk_pmic_keys *keys,
@@ -229,12 +228,13 @@ static irqreturn_t mtk_pmic_keys_release_irq_handler_thread(
 
 	input_report_key(info->keys->input_dev, info->keycode, 0);
 	input_sync(info->keys->input_dev);
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 start*/
-	power_homekey_released(info->keycode);
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 end*/
+
 	dev_dbg(info->keys->dev, "release key =%d using PMIC\n",
 			info->keycode);
-
+	/*HS03s_T code for AL5626TDEV-701 by yuli at 2022/10/30 start*/
+	get_volumedown_state(info->keycode,0);
+	get_power_state(info->keycode,0);
+	/*HS03s_T code for AL5626TDEV-701 by yuli at 2022/10/30 end*/
 	return IRQ_HANDLED;
 }
 
@@ -253,12 +253,13 @@ static irqreturn_t mtk_pmic_keys_irq_handler_thread(int irq, void *data)
 
 	input_report_key(info->keys->input_dev, info->keycode, pressed);
 	input_sync(info->keys->input_dev);
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 start*/
-	power_homekey_pressed(info->keycode);
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 end*/
+
 	dev_dbg(info->keys->dev, "(%s) key =%d using PMIC\n",
 		 pressed ? "pressed" : "released", info->keycode);
-
+	/*HS03s_T code for AL5626TDEV-701 by yuli at 2022/10/30 start*/
+	get_volumedown_state(info->keycode,pressed);
+	get_power_state(info->keycode,pressed);
+	/*HS03s_T code for AL5626TDEV-701 by yuli at 2022/10/30 end*/
 	return IRQ_HANDLED;
 }
 
@@ -326,6 +327,32 @@ int mtk_pmic_pwrkey_status(void)
 	return pressed;
 }
 EXPORT_SYMBOL(mtk_pmic_pwrkey_status);
+
+#ifdef CONFIG_SEC_DEBUG
+int mtk_pmic_homekey_status(void)
+{
+	struct mtk_pmic_keys_info *homekey;
+	const struct mtk_pmic_keys_regs *regs;
+	u32 key_deb, pressed;
+
+	if (!keys)
+		return -EINVAL;
+
+	homekey = &keys->keys[MTK_PMIC_HOMEKEY_INDEX];
+	regs = homekey->regs;
+
+	regmap_read(keys->regmap, regs->deb_reg, &key_deb);
+	dev_info(keys->dev, "Read register 0x%x and mask 0x%x and value: 0x%x\n",
+		 regs->deb_reg, regs->deb_mask, key_deb);
+	key_deb &= regs->deb_mask;
+	pressed = !key_deb;
+
+	dev_info(keys->dev, "%s home key\n", pressed ? "pressed" : "released");
+
+	return pressed;
+}
+EXPORT_SYMBOL(mtk_pmic_homekey_status);
+#endif
 
 static int __maybe_unused mtk_pmic_keys_suspend(struct device *dev)
 {

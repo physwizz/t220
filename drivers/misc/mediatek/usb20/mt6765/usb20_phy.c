@@ -16,6 +16,7 @@
 #include <musb_core.h>
 #include "usb20.h"
 #include <linux/nvmem-consumer.h>
+#include <linux/phy/phy.h>
 
 #ifdef CONFIG_OF
 #include <linux/of_address.h>
@@ -99,8 +100,30 @@ void usb_phy_switch_to_usb(void)
 #define SHFT_RG_USB20_TERM_VREF_SEL 8
 #define OFFSET_RG_USB20_PHY_REV6 0x18
 #define SHFT_RG_USB20_PHY_REV6 30
-/*TabA7 Lite code for OT8-108 config usb diagram by wenyaqi at 20201212 start*/
-/*TabA7 Lite code for OT8-1684 modify usb diagram by wenyaqi at 20210128 start*/
+/*HS03s for DEVAL5625-8 by wangzikang at 20210615 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
+#define U2_VRT_REF 0x7
+#define U2_TERM_REF 0x7
+#define U2_HSTX_SRCTRL 0x7
+#define U2_ENHANCE 0x3
+#define HOST_U2_VRT_REF 0x7
+#define HOST_U2_TERM_REF 0x7
+#define HOST_U2_HSTX_SRCTRL 0x7
+#define HOST_U2_ENHANCE 0x3
+#endif /*ELSE CONFIG_HQ_PROJECT_HS03S*/
+#ifdef CONFIG_HQ_PROJECT_HS04
+#define U2_VRT_REF 0x7
+#define U2_TERM_REF 0x7
+#define U2_HSTX_SRCTRL 0x7
+#define U2_ENHANCE 0x3
+#define HOST_U2_VRT_REF 0x7
+#define HOST_U2_TERM_REF 0x7
+#define HOST_U2_HSTX_SRCTRL 0x7
+#define HOST_U2_ENHANCE 0x3
+#endif /*ELSE CONFIG_HQ_PROJECT_HS04*/
+#ifdef CONFIG_HQ_PROJECT_OT8
+/*HS03s for DEVAL5625-8 by wangzikang at 20210615 end*/
+/*HS03s for DEVAL5625-8 by wenyaqi at 20210425 start*/
 #define U2_VRT_REF 0x7
 #define U2_TERM_REF 0x5
 #define U2_HSTX_SRCTRL 0x7
@@ -109,8 +132,11 @@ void usb_phy_switch_to_usb(void)
 #define HOST_U2_TERM_REF 0x4
 #define HOST_U2_HSTX_SRCTRL 0x5
 #define HOST_U2_ENHANCE 0x1
-/*TabA7 Lite code for OT8-1684 modify usb diagram by wenyaqi at 20210128 end*/
-/*TabA7 Lite code for OT8-108 config usb diagram by wenyaqi at 20201212 end*/
+/*HS03s for DEVAL5625-8 by wenyaqi at 20210425 end*/
+/*HS03s for DEVAL5625-8 by wangzikang at 20210615 start*/
+#endif /*END CONFIG_HQ_PROJECT_OT8*/
+/*HS03s for DEVAL5625-8 by wangzikang at 20210615 end*/
+
 void usb_phy_tuning(void)
 {
 	static bool inited;
@@ -224,7 +250,10 @@ static atomic_t clk_prepare_cnt = ATOMIC_INIT(0);
 
 bool usb_prepare_clock(bool enable)
 {
-	int before_cnt = atomic_read(&clk_prepare_cnt);
+	int before_cnt = 0;
+	pr_notice("wlc 07 usb_prepare_clock start \n");
+	before_cnt = atomic_read(&clk_prepare_cnt);
+	pr_notice("wlc 08 usb_prepare_clock start \n");
 
 	mutex_lock(&prepare_lock);
 
@@ -383,12 +412,12 @@ static void hs_slew_rate_cal(void)
 
 #define MSK_RG_USB20_HSTX_SRCTRL 0x7
 	/* all clr first then set */
-	/*TabA7 Lite code for OT8-1684 modify usb diagram by wenyaqi at 20210121 start*/
+	/*HS03s for DEVAL5625-8 by wenyaqi at 20210425 start*/
 	#if 0
 	USBPHY_CLR32(0x14, (MSK_RG_USB20_HSTX_SRCTRL << 12));
 	USBPHY_SET32(0x14, ((value & MSK_RG_USB20_HSTX_SRCTRL) << 12));
 	#endif
-	/*TabA7 Lite code for OT8-1684 modify usb diagram by wenyaqi at 20210121 end*/
+	/*HS03s for DEVAL5625-8 by wenyaqi at 20210425 end*/
 
 	/* disable usb ring oscillator. */
 	USBPHY_CLR32(0x14, (0x1 << 15));
@@ -497,8 +526,7 @@ void usb_phy_switch_to_usb(void)
 }
 #endif
 
-/*TabA7 Lite code for OT8-108 config usb diagram by wenyaqi at 20201210 start*/
-/*TabA7 Lite code for OT8-1684 modify usb diagram by wenyaqi at 20210121 start*/
+/*HS03s for DEVAL5625-8 by wenyaqi at 20210425 start*/
 void set_usb_eye_diagram(s32 u2_vrt_ref, s32 u2_term_ref, s32 u2_hstx_srctrl,
 	s32 u2_enhance)
 {
@@ -532,46 +560,57 @@ void set_usb_eye_diagram(s32 u2_vrt_ref, s32 u2_term_ref, s32 u2_hstx_srctrl,
 					u2_enhance<<SHFT_RG_USB20_PHY_REV6);
 		}
 	}
+	/*HS03s for DEVAL5625-8 by wangzikang at 20210615 start*/
+	pr_info("%s:u2_vrt_ref=0x%x, u2_term_ref=0x%x, u2_hstx_srctrl=0x%x,u2_enhance=0x%x\n",
+			__func__,u2_vrt_ref,u2_term_ref,u2_hstx_srctrl,u2_enhance);
+	/*HS03s for DEVAL5625-8 by wangzikang at 20210615 end*/
 }
-
 void set_usb_phy_mode(int mode)
 {
 	switch (mode) {
-	/*TabA7 Lite code for P210317-04316 by wenyaqi at 20210324 start*/
-	case PHY_DEV_ACTIVE:
+	case PHY_MODE_USB_DEVICE:
 	/* VBUSVALID=1, AVALID=1, BVALID=1, SESSEND=0, IDDIG=1, IDPULLUP=1 */
 		USBPHY_CLR32(0x6C, (0x10<<0));
 		USBPHY_SET32(0x6C, (0x2F<<0));
 		USBPHY_SET32(0x6C, (0x3F<<8));
+#ifdef CONFIG_HQ_PROJECT_OT8
+    /* modify code for OT8 */
 		USBPHY_CLR32(0x14, 1 << 16);
 		set_usb_eye_diagram(U2_VRT_REF, U2_TERM_REF, U2_HSTX_SRCTRL, U2_ENHANCE);
+#endif
 		break;
-	case PHY_HOST_ACTIVE:
+	case PHY_MODE_USB_HOST:
 	/* VBUSVALID=1, AVALID=1, BVALID=1, SESSEND=0, IDDIG=0, IDPULLUP=1 */
 		USBPHY_CLR32(0x6c, (0x12<<0));
 		USBPHY_SET32(0x6c, (0x2d<<0));
 		USBPHY_SET32(0x6c, (0x3f<<8));
-		USBPHY_SET32(0x14, 1 << 16);
+#ifdef CONFIG_HQ_PROJECT_OT8
+    /* modify code for OT8 */
+		USBPHY_CLR32(0x14, 1 << 16);
 		set_usb_eye_diagram(HOST_U2_VRT_REF, HOST_U2_TERM_REF, HOST_U2_HSTX_SRCTRL,
 			HOST_U2_ENHANCE);
+#endif
 		break;
-	case PHY_IDLE_MODE:
+	case PHY_MODE_INVALID:
 	/* VBUSVALID=0, AVALID=0, BVALID=0, SESSEND=1, IDDIG=0, IDPULLUP=1 */
 		USBPHY_SET32(0x6c, (0x11<<0));
 		USBPHY_CLR32(0x6c, (0x2e<<0));
 		USBPHY_SET32(0x6c, (0x3f<<8));
+#ifdef CONFIG_HQ_PROJECT_OT8
+    /* modify code for OT8 */
 		USBPHY_CLR32(0x14, 1 << 16);
 		set_usb_eye_diagram(U2_VRT_REF, U2_TERM_REF, U2_HSTX_SRCTRL, U2_ENHANCE);
+#endif
 		break;
-	/*TabA7 Lite code for P210317-04316 by wenyaqi at 20210324 end*/
 	default:
+#ifdef CONFIG_HQ_PROJECT_OT8
+    /* modify code for OT8 */
 		set_usb_eye_diagram(U2_VRT_REF, U2_TERM_REF, U2_HSTX_SRCTRL, U2_ENHANCE);
+#endif
 		DBG(0, "mode error %d\n", mode);
 	}
 	DBG(0, "force PHY to mode %d, 0x6c=%x\n", mode, USBPHY_READ32(0x6c));
 }
-/*TabA7 Lite code for OT8-1684 modify usb diagram by wenyaqi at 20210121 end*/
-/*TabA7 Lite code for OT8-108 config usb diagram by wenyaqi at 20201210 end*/
 
 void usb_rev6_setting(int value)
 {
@@ -720,7 +759,7 @@ static void usb_phy_savecurrent_internal(void)
 
 	udelay(1);
 
-	set_usb_phy_mode(PHY_IDLE_MODE);
+	set_usb_phy_mode(PHY_MODE_INVALID);
 }
 
 void usb_phy_savecurrent(void)
@@ -841,7 +880,7 @@ void usb_phy_recover(struct musb *musb)
 	udelay(800);
 
 	/* force enter device mode */
-	set_usb_phy_mode(PHY_DEV_ACTIVE);
+	set_usb_phy_mode(PHY_MODE_USB_DEVICE);
 
 	hs_slew_rate_cal();
 

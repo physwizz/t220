@@ -86,6 +86,8 @@ extern struct pinctrl_state *lcd_disp_pwm_gpio;
 extern void ili_resume_by_ddi(void);
 /*TabA7 Lite code for SR-AX3565-01-45 by gaozhengwei at 20201229 end*/
 
+extern bool g_system_is_shutdown;
+
 /* ----------------------------------------------------------------- */
 /*  Local Variables */
 /* ----------------------------------------------------------------- */

@@ -12,6 +12,7 @@
 
 #define MAX_WRITE_ARRAY_SIZE 32
 
+/*Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/03/02 start*/
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/i2c.h>
@@ -28,11 +29,13 @@
 #include <linux/sort.h>
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
+#include "../sensor_user_node.h"
+#include "sx932x.h"     /* main struct, interrupt,init,pointers */
+/*Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/03/02 end*/
+
 #if defined(CONFIG_SENSORS)
 #include <linux/sensor/sensors_core.h>
 #endif
-
-#include "sx932x.h"     /* main struct, interrupt,init,pointers */
 
 #if defined(CONFIG_SENSORS)
 #define VENDOR_NAME      "SEMTECH"
@@ -64,21 +67,27 @@
 #define TOUCH_CHECK_SLOPE        0 // 50
 #define TOUCH_CHECK_MAIN_AMB     0 // 151282
 
-/*TabA7 Lite code for OT8-1296 by Hujincan at 20210117 start*/
+/*TabA7 Lite code for OT8-1296 by Hujincan at 20210419 start*/
 #define DEBUG_READ
-//#define DEBUG_WRITE
-/*TabA7 Lite code for OT8-1296 by Hujincan at 20210117 end*/
+#define DEBUG_WRITE
+/*TabA7 Lite code for OT8-1296 by Hujincan at 20210419 end*/
 
 /*TabA7 Lite code for OT8-1003 by Hujincan at 20210111 start*/
 extern char *sar_name;
 /*TabA7 Lite code for OT8-1003 by Hujincan at 20210111 end*/
 
-#ifndef CONFIG_SENSORS
-/*TabA7 Lite code for OT8-3208 by Hujincan at 20210315 start*/
-static bool mEnabled = 0;
-/*TabA7 Lite code for OT8-3208 by Hujincan at 20210315 end*/
-#endif
+/*TabA7 Lite code for OT8-3208|OT8-4719 by Hujincan at 20210419 start*/
+static bool mEnabled = 1;
+/* Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/04/10 start */
+static bool onoff_mEnabled = true;
+struct device *onoff_dev;
+/* Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/04/10 end */
+/*TabA7 Lite code for OT8-3208|OT8-4719 by Hujincan at 20210419 end*/
 
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 start*/
+static int g_cali_sign = 1, g_irq_sign = 1;
+static void touchProcess(psx93XX_t this);
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 end*/
 /*! \struct sx932x
  * Specialized struct containing input event data, platform data, and
  * last cap state read if needed.
@@ -91,14 +100,9 @@ typedef struct sx932x
 
 static int irq_gpio_num;
 
-#if defined(CONFIG_SENSORS)
-static bool mEnabled = 1;
-static void touchProcess(psx93XX_t this);
-#endif
-
 /*! \fn static int write_register(psx93XX_t this, u8 address, u8 value)
  * \brief Sends a write register to the device
- * \param this Pointer to main parent struct 
+ * \param this Pointer to main parent struct
  * \param address 8-bit register address
  * \param value   8-bit register value to write to address
  * \return Value from i2c_master_send
@@ -126,11 +130,11 @@ static int write_register(psx93XX_t this, u8 address, u8 value)
     return returnValue;
 }
 
-/*! \fn static int read_register(psx93XX_t this, u8 address, u8 *value) 
+/*! \fn static int read_register(psx93XX_t this, u8 address, u8 *value)
 * \brief Reads a register's value from the device
-* \param this Pointer to main parent struct 
+* \param this Pointer to main parent struct
 * \param address 8-Bit address to read from
-* \param value Pointer to 8-bit value to save register value to 
+* \param value Pointer to 8-bit value to save register value to
 * \return Value from i2c_smbus_read_byte_data if < 0. else 0
 */
 static int read_register(psx93XX_t this, u8 address, u8 *value)
@@ -151,7 +155,7 @@ static int read_register(psx93XX_t this, u8 address, u8 *value)
         if (returnValue >= 0) {
             *value = returnValue;
             return 0;
-        } 
+        }
         else {
             return returnValue;
         }
@@ -164,9 +168,9 @@ static int read_register(psx93XX_t this, u8 address, u8 *value)
 /*! \fn static int read_regStat(psx93XX_t this)
  * \brief Shortcut to read what caused interrupt.
  * \details This is to keep the drivers a unified
- * function that will read whatever register(s) 
+ * function that will read whatever register(s)
  * provide information on why the interrupt was caused.
- * \param this Pointer to main parent struct 
+ * \param this Pointer to main parent struct
  * \return If successful, Value of bit(s) that cause interrupt, else 0
  */
 static int read_regStat(psx93XX_t this)
@@ -184,7 +188,7 @@ static int read_regStat(psx93XX_t this)
 * \param this Pointer to main parent struct 
 * \return Value return value from the write register
  */
-/*TabA7 Lite code for OT8-1296 by Hujincan at 20210117 start*/
+/*TabA7 Lite code for OT8-1296|OT8-5204 by Hujincan at 20211019 start*/
 static int manual_offset_calibration(psx93XX_t this)
 {
     s32 returnValue = 0;
@@ -194,14 +198,14 @@ static int manual_offset_calibration(psx93XX_t this)
         dev_err(this->pdev,"Write_register error!\n");
         return returnValue;
     }
-    returnValue = write_register(this,SX932x_CTRL1_REG,0x27);
+    returnValue = write_register(this,SX932x_CTRL1_REG,this->sx932x_ctrl1_reg_value);
     if (returnValue < 0) {
         dev_err(this->pdev,"Write_register error!\n");
         return returnValue;
     }
     return returnValue;
 }
-/*TabA7 Lite code for OT8-1296 by Hujincan at 20210117 end*/
+/*TabA7 Lite code for OT8-1296|OT8-5204 by Hujincan at 20211019 end*/
 /*! \brief sysfs show function for manual calibration which currently just
  * returns register value.
  */
@@ -238,7 +242,7 @@ static int sx932x_Hardware_Check(psx93XX_t this)
     u8 failcode;
     u8 loop = 0;
     this->failStatusCode = 0;
-    
+
     //Check th IRQ Status
     while(this->get_nirq_low && this->get_nirq_low()){
         read_regStat(this);
@@ -248,17 +252,17 @@ static int sx932x_Hardware_Check(psx93XX_t this)
             break;
         }
     }
-    
+
     //Check I2C Connection
     ret = read_register(this, SX932x_WHOAMI_REG, &failcode);
     if(ret < 0){
         this->failStatusCode = SX932x_I2C_ERROR;
     }
-        
+
     if(failcode!= SX932x_WHOAMI_VALUE){
         this->failStatusCode = SX932x_ID_ERROR;
     }
-    
+
     dev_info(this->pdev, "sx932x failcode = 0x%x\n",this->failStatusCode);
     return (int)this->failStatusCode;
 }
@@ -320,19 +324,19 @@ static void read_rawData(psx93XX_t this)
     u16 offset;
     if(this){
         for(csx =0; csx<4; csx++){
-            write_register(this,SX932x_CPSRD,csx);//here to check the CS1, also can read other channel        
+            write_register(this,SX932x_CPSRD,csx);//here to check the CS1, also can read other channel
             read_register(this,SX932x_USEMSB,&msb);
             read_register(this,SX932x_USELSB,&lsb);
             useful = (s32)((msb << 8) | lsb);
-            
+
             read_register(this,SX932x_AVGMSB,&msb);
             read_register(this,SX932x_AVGLSB,&lsb);
             average = (s32)((msb << 8) | lsb);
-            
+
             read_register(this,SX932x_DIFFMSB,&msb);
             read_register(this,SX932x_DIFFLSB,&lsb);
             diff = (s32)((msb << 8) | lsb);
-            
+
             read_register(this,SX932x_OFFSETMSB,&msb);
             read_register(this,SX932x_OFFSETLSB,&lsb);
             offset = (u16)((msb << 8) | lsb);
@@ -355,14 +359,14 @@ static ssize_t sx932x_raw_data_show(struct device *dev,
     return 0;
 }
 
-/*TabA7 Lite code for OT8-3208 by Hujincan at 20210315 start*/
 #ifndef CONFIG_SENSORS
+/*TabA7 Lite code for OT8-3208|OT8-5204 by Hujincan at 20211019 start*/
 static ssize_t enable_show(struct device *dev,
                         struct device_attribute *attr, char *buf)
 {
     return sprintf(buf, "%d\n", mEnabled);
 }
-
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 start*/
 static ssize_t enable_store(struct device *dev,
             struct device_attribute *attr,const char *buf, size_t count)
 {
@@ -379,11 +383,14 @@ static ssize_t enable_store(struct device *dev,
         if (!strncmp(buf, "1", 1)) {
             dev_info(this->pdev, "enable sx9328\n");
             enable_irq(this->irq);
-            write_register(this,SX932x_CTRL1_REG,0x27);//make sx932x in Active mode
+            enable_irq_wake(this->irq);
+            write_register(this,SX932x_CTRL1_REG,this->sx932x_ctrl1_reg_value);//make sx932x in Active mode
+            touchProcess(this);
             mEnabled = 1;
         } else if (!strncmp(buf, "0", 1)) {
             dev_info(this->pdev, "disable sx9328\n");
             disable_irq(this->irq);
+            disable_irq_wake(this->irq);
             write_register(this,SX932x_CTRL1_REG,0x07);//make sx932x in Pause mode
             #ifdef HQ_FACTORY_BUILD
             input_report_key(input_main_sar, KEY_SAR2_FAR, 1);
@@ -391,8 +398,12 @@ static ssize_t enable_store(struct device *dev,
             input_report_key(input_wifi_sar, KEY_SAR_FAR, 1);
             input_report_key(input_wifi_sar, KEY_SAR_FAR, 0);
             #else
+            /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 start*/
             input_report_abs(input_main_sar, ABS_DISTANCE, 5);
+            input_report_rel(input_main_sar, REL_X, 2);
             input_report_abs(input_wifi_sar, ABS_DISTANCE, 5);
+            input_report_rel(input_wifi_sar, REL_X, 2);
+            /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 end*/
             #endif
             input_sync(input_main_sar);
             input_sync(input_wifi_sar);
@@ -403,8 +414,9 @@ static ssize_t enable_store(struct device *dev,
     }
     return count;
 }
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 end*/
+/*TabA7 Lite code for OT8-3208|OT8-5204 by Hujincan at 20211019 end*/
 #endif
-/*TabA7 Lite code for OT8-3208 by Hujincan at 20210315 end*/
 
 static DEVICE_ATTR(manual_calibrate, 0664, manual_offset_calibration_show,manual_offset_calibration_store);
 static DEVICE_ATTR(register_write,  0664, NULL,sx932x_register_write_store);
@@ -447,6 +459,8 @@ static int enable_bottom(psx93XX_t this, unsigned int enable)
                 enable_irq(this->irq);
                 this->irq_disabled = 0;
             }
+            enable_irq_wake(this->irq);
+            write_register(this,SX932x_CTRL1_REG,this->sx932x_ctrl1_reg_value);
             mEnabled = 1;
         }
 
@@ -458,15 +472,21 @@ static int enable_bottom(psx93XX_t this, unsigned int enable)
         if (this->skip_data == true) {
             pr_info("%s - skip grip event\n", __func__);
         } else {
-            read_register(this, SX932x_STAT0_REG, &i);
-            if ((i & pCurrentButton->mask) == (pCurrentButton->mask)) {
-                input_report_rel(input_main_sar, REL_MISC, 1);
-                input_sync(input_main_sar);
-                pCurrentButton->state = ACTIVE;
+            if (!onoff_mEnabled) {
+                pr_info("%s - onoff_mEnabled false\n", __func__);
             } else {
-                input_report_rel(input_main_sar, REL_MISC, 2);
-                input_sync(input_main_sar);
-                pCurrentButton->state = IDLE;
+                read_register(this, SX932x_STAT0_REG, &i);
+                if ((i & pCurrentButton->mask) == (pCurrentButton->mask)) {
+                    input_report_rel(input_main_sar, REL_MISC, 1);
+                    input_report_rel(input_main_sar, REL_X, 2);
+                    input_sync(input_main_sar);
+                    pCurrentButton->state = ACTIVE;
+                } else {
+                    input_report_rel(input_main_sar, REL_MISC, 2);
+                    input_report_rel(input_main_sar, REL_X, 2);
+                    input_sync(input_main_sar);
+                    pCurrentButton->state = IDLE;
+                }
             }
         }
 
@@ -481,6 +501,8 @@ static int enable_bottom(psx93XX_t this, unsigned int enable)
                 disable_irq(this->irq);
                 this->irq_disabled = 1;
             }
+            disable_irq_wake(this->irq);
+            write_register(this,SX932x_CTRL1_REG, 0x07);
             mEnabled = 0;
         }
     } else {
@@ -509,6 +531,8 @@ static int enable_top(psx93XX_t this, unsigned int enable)
                 enable_irq(this->irq);
                 this->irq_disabled = 0;
             }
+            enable_irq_wake(this->irq);
+            write_register(this,SX932x_CTRL1_REG,this->sx932x_ctrl1_reg_value);
             mEnabled = 1;
         }
 
@@ -520,15 +544,21 @@ static int enable_top(psx93XX_t this, unsigned int enable)
         if (this->skip_data == true) {
             pr_info("%s - skip grip event\n", __func__);
         } else {
-            read_register(this, SX932x_STAT0_REG, &i);
-            if ((i & pCurrentButton->mask) == (pCurrentButton->mask)) {
-                input_report_rel(input_wifi_sar, REL_MISC, 1);
-                input_sync(input_wifi_sar);
-                pCurrentButton->state = ACTIVE;
+            if (!onoff_mEnabled) {
+                pr_info("%s - onoff_mEnabled false\n", __func__);
             } else {
-                input_report_rel(input_wifi_sar, REL_MISC, 2);
-                input_sync(input_wifi_sar);
-                pCurrentButton->state = IDLE;
+                read_register(this, SX932x_STAT0_REG, &i);
+                if ((i & pCurrentButton->mask) == (pCurrentButton->mask)) {
+                    input_report_rel(input_wifi_sar, REL_MISC, 1);
+                    input_report_rel(input_wifi_sar, REL_X, 2);
+                    input_sync(input_wifi_sar);
+                    pCurrentButton->state = ACTIVE;
+                } else {
+                    input_report_rel(input_wifi_sar, REL_MISC, 2);
+                    input_report_rel(input_wifi_sar, REL_X, 2);
+                    input_sync(input_wifi_sar);
+                    pCurrentButton->state = IDLE;
+                }
             }
         }
 
@@ -543,6 +573,8 @@ static int enable_top(psx93XX_t this, unsigned int enable)
                 disable_irq(this->irq);
                 this->irq_disabled = 1;
             }
+            disable_irq_wake(this->irq);
+            write_register(this,SX932x_CTRL1_REG, 0x07);
             mEnabled = 0;
         }
     } else {
@@ -835,14 +867,14 @@ static void sar_plat_charger_init(psx93XX_t this)
 #endif //SAR_USB_CALIBRATION
 /****************************************************/
 /*! \brief  Initialize I2C config from platform data
- * \param this Pointer to main parent struct 
+ * \param this Pointer to main parent struct
  */
 static void sx932x_reg_init(psx93XX_t this)
 {
     psx932x_t pDevice = 0;
     psx932x_platform_data_t pdata = 0;
     int i = 0;
-    /* configure device */ 
+    /* configure device */
     dev_info(this->pdev, "Going to Setup I2C Registers\n");
     if (this && (pDevice = this->pDevice) && (pdata = pDevice->hw))
     {
@@ -876,7 +908,7 @@ static void sx932x_reg_init(psx93XX_t this)
 
 /*! \fn static int initialize(psx93XX_t this)
  * \brief Performs all initialization needed to configure the device
- * \param this Pointer to main parent struct 
+ * \param this Pointer to main parent struct
  * \return Last used command's return value (negative if error)
  */
 static int initialize(psx93XX_t this)
@@ -893,9 +925,9 @@ static int initialize(psx93XX_t this)
         dev_info(this->pdev, "Sent Software Reset. Waiting until device is back from reset to continue.\n");
         /* just sleep for awhile instead of using a loop with reading irq status */
         msleep(100);
-        
+
         ret = sx932x_global_variable_init(this);
-        
+
         sx932x_reg_init(this);
         msleep(100); /* make sure everything is running */
         manual_offset_calibration(this);
@@ -906,7 +938,10 @@ static int initialize(psx93XX_t this)
 
         /* re-enable interrupt handling */
         enable_irq(this->irq);
-        
+        /*TabA7 Lite code for OT8-4719 by Hujincan at 20210419 start*/
+        enable_irq_wake(this->irq);
+        /*TabA7 Lite code for OT8-4719 by Hujincan at 20210419 end*/
+
         /* make sure no interrupts are pending since enabling irq will only
         * work on next falling edge */
         read_regStat(this);
@@ -915,11 +950,70 @@ static int initialize(psx93XX_t this)
     return -ENOMEM;
 }
 
-/*! 
+/* Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/04/10 start */
+ssize_t sx932_set_onoff(const char *buf, size_t count)
+{
+    psx93XX_t this = dev_get_drvdata(onoff_dev);
+    psx932x_t pDevice = NULL;
+    struct input_dev *input_main_sar = NULL;
+    struct input_dev *input_wifi_sar = NULL;
+
+    if (this && (pDevice = this->pDevice)){
+        if (!strncmp(buf, "1", 1)) {
+            if (this->irq_disabled == 1) {
+                enable_irq(this->irq);
+                this->irq_disabled = 0;
+            } else {
+                dev_err(this->pdev, "irq already enable!");
+            }
+            onoff_mEnabled = true;
+            dev_info(this->pdev, "onoff Function set of on\n");
+        } else if (!strncmp(buf, "0", 1)) {
+            input_main_sar = pDevice->pbuttonInformation->input_main_sar;
+            input_wifi_sar = pDevice->pbuttonInformation->input_wifi_sar;
+            if (this->irq_disabled == 0) {
+                disable_irq(this->irq);
+                this->irq_disabled = 1;
+            } else {
+                dev_info(this->pdev, "irq already disable!");
+            }
+            onoff_mEnabled = false;
+            if (input_main_sar && input_wifi_sar) {
+                /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 start*/
+                input_report_rel(input_main_sar, REL_MISC, 2);
+                input_report_rel(input_main_sar, REL_X, 2);
+                input_report_rel(input_wifi_sar, REL_MISC, 2);
+                input_report_rel(input_wifi_sar, REL_X, 2);
+                /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 end*/
+                input_sync(input_main_sar);
+                input_sync(input_wifi_sar);
+                dev_info(this->pdev, "onoff report down\n");
+            } else {
+                dev_err(this->pdev, "onoff input device has null pointer!");
+            }
+            dev_info(this->pdev, "onoff Function set of off\n");
+        } else {
+            dev_err(this->pdev, "onoff instruction error!");
+        }
+
+    } else {
+        dev_err(this->pdev, "onoff Function has null pointer!");
+    }
+    return count;
+
+}
+ssize_t sx932_get_onoff(char *buf)
+{
+    return snprintf(buf, 8, "%d\n", onoff_mEnabled);
+}
+/* Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/04/10 end */
+
+/*!
  * \brief Handle what to do when a touch occurs
- * \param this Pointer to main parent struct 
+ * \param this Pointer to main parent struct
  */
 /*TabA7 Lite code for OT8-2505 by Hujincan at 20210204 start*/
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 start*/
 static void touchProcess(psx93XX_t this)
 {
     int counter = 0;
@@ -954,84 +1048,108 @@ static void touchProcess(psx93XX_t this)
         }
 #endif
 
-        for (counter = 0; counter < numberOfButtons; counter++) {
-            pCurrentButton = &buttons[counter];
-            if (pCurrentButton==NULL) {
-                dev_err(this->pdev,"ERROR!! current button at index: %d NULL!!!\n", counter);
-                return; // ERRORR!!!!
+        dev_err(this->pdev,"sx932x g_cali_sign: %d sx932x g_irq_sign: %d   \n", g_cali_sign, g_irq_sign);
+        /* Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/04/10 start */
+        if (onoff_mEnabled == false) {
+            return;
+        }
+        /* Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/04/10 end */
+        if (g_cali_sign < 3 && g_irq_sign < 12 ) {
+            input_report_rel(input_main_sar, REL_MISC, 1);
+            /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 start*/
+            input_report_rel(input_main_sar, REL_X, 1);
+            input_report_rel(input_wifi_sar, REL_MISC, 1);
+            input_report_rel(input_wifi_sar, REL_X, 1);
+            input_sync(input_main_sar);
+            input_sync(input_wifi_sar);
+            dev_err(this->pdev,"sx932x anfr starting\n");
+        } else {
+            for (counter = 0; counter < numberOfButtons; counter++) {
+                pCurrentButton = &buttons[counter];
+                if (pCurrentButton==NULL) {
+                    dev_err(this->pdev,"ERROR!! current button at index: %d NULL!!!\n", counter);
+                    return; // ERRORR!!!!
+                }
+                switch (pCurrentButton->state) {
+                    case IDLE: /* Button is not being touched! */
+                        if (((i & pCurrentButton->mask) == pCurrentButton->mask)) {
+                            /* User pressed button */
+                            dev_info(this->pdev, "cap button %d touched\n", counter);
+                            if (counter == 1 && this->channel_status & 0x01){
+                                #ifdef HQ_FACTORY_BUILD
+                                input_report_key(input_main_sar, KEY_SAR2_CLOSE, 1);
+                                input_report_key(input_main_sar, KEY_SAR2_CLOSE, 0);
+                                #else
+                                input_report_rel(input_main_sar, REL_MISC, 1);
+                                input_report_rel(input_main_sar, REL_X, 2);
+                                #endif
+                                input_sync(input_main_sar);
+                            }
+                            else if (counter == 2 && this->channel_status & 0x02){
+                                #ifdef HQ_FACTORY_BUILD
+                                input_report_key(input_wifi_sar, KEY_SAR_CLOSE, 1);
+                                input_report_key(input_wifi_sar, KEY_SAR_CLOSE, 0);
+                                #else
+                                input_report_rel(input_wifi_sar, REL_MISC, 1);
+                                input_report_rel(input_wifi_sar, REL_X, 2);
+                                #endif
+                                input_sync(input_wifi_sar);
+                            }
+                            pCurrentButton->state = ACTIVE;
+                        } else {
+                            dev_info(this->pdev, "Button %d already released.\n",counter);
+                        }
+                        break;
+                    case ACTIVE: /* Button is being touched! */
+                        if (((i & pCurrentButton->mask) != pCurrentButton->mask)) {
+                            /* User released button */
+                            dev_info(this->pdev, "cap button %d released\n",counter);
+                            if (counter == 1 && this->channel_status & 0x01){
+                                #ifdef HQ_FACTORY_BUILD
+                                input_report_key(input_main_sar, KEY_SAR2_FAR, 1);
+                                input_report_key(input_main_sar, KEY_SAR2_FAR, 0);
+                                #else
+                                input_report_rel(input_main_sar, REL_MISC, 2);
+                                input_report_rel(input_main_sar, REL_X, 2);
+                                #endif
+                                input_sync(input_main_sar);
+                            }
+                            if (counter == 2 && this->channel_status & 0x02){
+                                #ifdef HQ_FACTORY_BUILD
+                                input_report_key(input_wifi_sar, KEY_SAR_FAR, 1);
+                                input_report_key(input_wifi_sar, KEY_SAR_FAR, 0);
+                                #else
+                                input_report_rel(input_wifi_sar, REL_MISC, 2);
+                                input_report_rel(input_wifi_sar, REL_X, 2);
+                                /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 end*/
+                                #endif
+                                input_sync(input_wifi_sar);
+                            }
+                            pCurrentButton->state = IDLE;
+                        } else {
+                            dev_info(this->pdev, "Button %d still touched.\n",counter);
+                        }
+                        break;
+                    default: /* Shouldn't be here, device only allowed ACTIVE or IDLE */
+                        break;
+                }
             }
-            switch (pCurrentButton->state) {
-                case IDLE: /* Button is not being touched! */
-                    if (((i & pCurrentButton->mask) == pCurrentButton->mask)) {
-                        /* User pressed button */
-                        dev_info(this->pdev, "cap button %d touched\n", counter);
-                        if (counter == 1){
-                            #ifdef HQ_FACTORY_BUILD
-                            input_report_key(input_main_sar, KEY_SAR2_CLOSE, 1);
-                            input_report_key(input_main_sar, KEY_SAR2_CLOSE, 0);
-                            #else
-                            input_report_rel(input_main_sar, REL_MISC, 1);
-                            #endif
-                            input_sync(input_main_sar);
-                        }
-                        else if (counter == 2){
-                            #ifdef HQ_FACTORY_BUILD
-                            input_report_key(input_wifi_sar, KEY_SAR_CLOSE, 1);
-                            input_report_key(input_wifi_sar, KEY_SAR_CLOSE, 0);
-                            #else
-                            input_report_rel(input_wifi_sar, REL_MISC, 1);
-                            #endif
-                            input_sync(input_wifi_sar);
-                        }
-                        pCurrentButton->state = ACTIVE;
-                    } else {
-                        dev_info(this->pdev, "Button %d already released.\n",counter);
-                    }
-                    break;
-                case ACTIVE: /* Button is being touched! */
-                    if (((i & pCurrentButton->mask) != pCurrentButton->mask)) {
-                        /* User released button */
-                        dev_info(this->pdev, "cap button %d released\n",counter);
-                        if (counter == 1){
-                            #ifdef HQ_FACTORY_BUILD
-                            input_report_key(input_main_sar, KEY_SAR2_FAR, 1);
-                            input_report_key(input_main_sar, KEY_SAR2_FAR, 0);
-                            #else
-                            input_report_rel(input_main_sar, REL_MISC, 2);
-                            #endif
-                            input_sync(input_main_sar);
-                        }
-                        else if (counter == 2){
-                            #ifdef HQ_FACTORY_BUILD
-                            input_report_key(input_wifi_sar, KEY_SAR_FAR, 1);
-                            input_report_key(input_wifi_sar, KEY_SAR_FAR, 0);
-                            #else
-                            input_report_rel(input_wifi_sar, REL_MISC, 2);
-                            #endif
-                            input_sync(input_wifi_sar);
-                        }
-                        pCurrentButton->state = IDLE;
-                    } else {
-                        dev_info(this->pdev, "Button %d still touched.\n",counter);
-                    }
-                    break;
-                default: /* Shouldn't be here, device only allowed ACTIVE or IDLE */
-                    break;
-            };
         }
 
    //dev_info(this->pdev, "Leaving touchProcess()\n");
   }
 }
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 end*/
 /*TabA7 Lite code for OT8-2505 by Hujincan at 20210204 end*/
 
-static int sx932x_parse_dt(struct sx932x_platform_data *pdata, struct device *dev)
+/*TabA7 Lite code for OT8-5204 by Hujincan at 20211019 start*/
+static int sx932x_parse_dt(struct sx932x_platform_data *pdata, struct device *dev, char *reg_int_name)
 {
     struct device_node *dNode = dev->of_node;
     enum of_gpio_flags flags;
     if (dNode == NULL)
         return -ENODEV;
-    
+
     pdata->irq_gpio= of_get_named_gpio_flags(dNode,
                                             "Semtech,nirq-gpio", 0, &flags);
     irq_gpio_num = pdata->irq_gpio;
@@ -1039,7 +1157,7 @@ static int sx932x_parse_dt(struct sx932x_platform_data *pdata, struct device *de
         pr_err("[SENSOR]: %s - get irq_gpio error\n", __func__);
         return -ENODEV;
     }
-    
+
     /***********************************************************************/
     // load in registers from device tree
     of_property_read_u32(dNode,"Semtech,reg-num",&pdata->i2c_reg_num);
@@ -1047,20 +1165,20 @@ static int sx932x_parse_dt(struct sx932x_platform_data *pdata, struct device *de
     // if an extra item is after just ignore it. reading the array in will cause it to fail anyway
     pr_info("[SX932x]:%s -  size of elements %d \n", __func__,pdata->i2c_reg_num);
     if (pdata->i2c_reg_num > 0) {
-         // initialize platform reg data array
-         pdata->pi2c_reg = devm_kzalloc(dev,sizeof(struct smtc_reg_data)*pdata->i2c_reg_num, GFP_KERNEL);
-         if (unlikely(pdata->pi2c_reg == NULL)) {
+        // initialize platform reg data array
+        pdata->pi2c_reg = devm_kzalloc(dev,sizeof(struct smtc_reg_data)*pdata->i2c_reg_num, GFP_KERNEL);
+        if (unlikely(pdata->pi2c_reg == NULL)) {
             return -ENOMEM;
         }
-
-     // initialize the array
-        if (of_property_read_u8_array(dNode,"Semtech,reg-init",(u8*)&(pdata->pi2c_reg[0]),sizeof(struct smtc_reg_data)*pdata->i2c_reg_num))
-        return -ENOMEM;
+        if (of_property_read_u8_array(dNode,reg_int_name,(u8*)&(pdata->pi2c_reg[0]),sizeof(struct smtc_reg_data)*pdata->i2c_reg_num)) {
+            return -ENOMEM;
+        }
     }
     /***********************************************************************/
     pr_info("[SX932x]: %s -[%d] parse_dt complete\n", __func__,pdata->irq_gpio);
     return 0;
 }
+/*TabA7 Lite code for OT8-5204 by Hujincan at 20211019 end*/
 
 /* get the NIRQ state (1->NIRQ-low, 0->NIRQ-high) */
 static int sx932x_init_platform_hw(struct i2c_client *client)
@@ -1094,7 +1212,7 @@ static int sx932x_init_platform_hw(struct i2c_client *client)
     else {
         pr_err("[SX932x] : %s - Do not init platform HW", __func__);
     }
-    
+
     pr_err("[SX932x]: %s - sx932x_irq_debug\n",__func__);
     return rc;
 }
@@ -1127,7 +1245,7 @@ static int sx932x_get_nirq_state(void)
  * \param id pointer to i2c_device_id
  * \return Whether probe was successful
  */
-/*TabA7 Lite code for OT8-2505 by Hujincan at 20210202 start*/
+/*TabA7 Lite code for OT8-2505|OT8-5204 by Hujincan at 20211019 start*/
 static int sx932x_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
     int i = 0;
@@ -1139,6 +1257,7 @@ static int sx932x_probe(struct i2c_client *client, const struct i2c_device_id *i
     struct input_dev *input_main_sar = NULL;
     struct input_dev *input_wifi_sar = NULL;
     struct i2c_adapter *adapter = to_i2c_adapter(client->dev.parent);
+    char *sar_cmd_line = saved_command_line;
 
     dev_info(&client->dev, "sx932x_probe()\n");
 
@@ -1148,212 +1267,218 @@ static int sx932x_probe(struct i2c_client *client, const struct i2c_device_id *i
         return err;
     }
 
+    this = devm_kzalloc(&client->dev,sizeof(sx93XX_t), GFP_KERNEL); /* create memory for main struct */
+    dev_info(&client->dev, "\t Initialized Main Memory: 0x%p\n",this);
+
+    pButtonInformationData = devm_kzalloc(&client->dev , sizeof(struct totalButtonInformation), GFP_KERNEL);
+    if (!pButtonInformationData) {
+        dev_err(&client->dev, "Failed to allocate memory(totalButtonInformation)\n");
+        err = -ENOMEM;
+        return err;
+    }
+
+    pButtonInformationData->buttonSize = ARRAY_SIZE(psmtcButtons);
+    pButtonInformationData->buttons =  psmtcButtons;
     pplatData = devm_kzalloc(&client->dev,sizeof(struct sx932x_platform_data), GFP_KERNEL);
     if (!pplatData) {
         dev_err(&client->dev, "platform data is required!\n");
         return -EINVAL;
     }
 
-    this = devm_kzalloc(&client->dev,sizeof(sx93XX_t), GFP_KERNEL); /* create memory for main struct */
-    if (!this) {
-        dev_err(&client->dev, "failed to alloc for main struct\n");
-        err = -ENOMEM;
-        goto exit_alloc_mem;
-    } else {
-        dev_info(&client->dev, "\t Initialized Main Memory: 0x%p\n",this);
-    }
-
-    /* create memory for device specific struct */
-    this->pDevice = pDevice = devm_kzalloc(&client->dev,sizeof(sx932x_t), GFP_KERNEL);
-    if (!this->pDevice) {
-        dev_err(&client->dev, "failed to alloc for device memory\n");
-        err = -ENOMEM;
-        goto exit_alloc_dev;
-    } else {
-        dev_info(&client->dev, "\t Initialized Device Specific Memory: 0x%p\n",pDevice);
-    }
-
-    pButtonInformationData = devm_kzalloc(&client->dev , sizeof(struct totalButtonInformation), GFP_KERNEL);
-    if (!pButtonInformationData) {
-        dev_err(&client->dev, "Failed to allocate memory(totalButtonInformation)\n");
-        err = -ENOMEM;
-        goto exit_alloc_button_info;
-    }
-
-    pButtonInformationData->buttonSize = ARRAY_SIZE(psmtcButtons);
-    pButtonInformationData->buttons =  psmtcButtons;
-
     pplatData->get_is_nirq_low = sx932x_get_nirq_state;
     pplatData->pbuttonInformation = pButtonInformationData;
-
+ 
     client->dev.platform_data = pplatData;
-    err = sx932x_parse_dt(pplatData, &client->dev);
+    if (NULL != sar_cmd_line) {
+        if (NULL != strstr(sar_cmd_line, "WIFI")) {
+            this->sx932x_ctrl1_reg_value = 0x25;
+            err = sx932x_parse_dt(pplatData, &client->dev, "Semtech,reg-init-67");
+            dev_info(&client->dev, "wifi\n");
+        } else if (NULL != strstr(sar_cmd_line, "VZM")) {
+            this->sx932x_ctrl1_reg_value = 0x27;
+            err = sx932x_parse_dt(pplatData, &client->dev, "Semtech,reg-init-66");
+            dev_info(&client->dev, "na\n");
+        } else {
+            this->sx932x_ctrl1_reg_value = 0x27;
+            err = sx932x_parse_dt(pplatData, &client->dev, "Semtech,reg-init-65");
+            dev_info(&client->dev, "global\n");
+        }
+    } else {
+        this->sx932x_ctrl1_reg_value = 0x27;
+        err = sx932x_parse_dt(pplatData, &client->dev, "Semtech,reg-init-65");
+        dev_info(&client->dev, "none\n");
+    }
+
     if (err) {
         dev_err(&client->dev, "could not setup pin\n");
-        err = -ENODEV;
-        goto exit_no_device;
+        return ENODEV;
     }
 
     pplatData->init_platform_hw = sx932x_init_platform_hw;
-    dev_info(&client->dev, "SX932x init_platform_hw done!\n");
+    dev_err(&client->dev, "SX932x init_platform_hw done!\n");
 
-    dev_info(&client->dev, "SX932x initialize start!!");
-    /* In case we need to reinitialize data 
-    * (e.q. if suspend reset device) */
-    this->init = initialize;
-    /* shortcut to read status of interrupt */
-    this->refreshStatus = read_regStat;
-    /* pointer to function from platform data to get pendown 
-    * (1->NIRQ=0, 0->NIRQ=1) */
-    this->get_nirq_low = pplatData->get_is_nirq_low;
-    /* save irq in case we need to reference it */
-    this->irq = client->irq;
-    /* do we need to create an irq timer after interrupt ? */
-    this->useIrqTimer = 0;
+    if (this){
+        dev_info(&client->dev, "SX932x initialize start!!");
+        /* In case we need to reinitialize data 
+        * (e.q. if suspend reset device) */
+        this->init = initialize;
+        /* shortcut to read status of interrupt */
+        this->refreshStatus = read_regStat;
+        /* pointer to function from platform data to get pendown
+        * (1->NIRQ=0, 0->NIRQ=1) */
+        this->get_nirq_low = pplatData->get_is_nirq_low;
+        /* save irq in case we need to reference it */
+        this->irq = client->irq;
+        /* do we need to create an irq timer after interrupt ? */
+        this->useIrqTimer = 0;
 
-    /* Setup function to call on corresponding reg irq source bit */
-    if (MAX_NUM_STATUS_BITS>= 8)
-    {
-        this->statusFunc[0] = 0; /* TXEN_STAT */
-        this->statusFunc[1] = 0; /* UNUSED */
-        this->statusFunc[2] = 0; /* UNUSED */
-        this->statusFunc[3] = read_rawData; /* CONV_STAT */
-        this->statusFunc[4] = touchProcess; /* COMP_STAT */
-        this->statusFunc[5] = touchProcess; /* RELEASE_STAT */
-        this->statusFunc[6] = touchProcess; /* TOUCH_STAT  */
-        this->statusFunc[7] = 0; /* RESET_STAT */
-    }
+        /* Setup function to call on corresponding reg irq source bit */
+        if (MAX_NUM_STATUS_BITS>= 8)
+        {
+            this->statusFunc[0] = 0; /* TXEN_STAT */
+            this->statusFunc[1] = 0; /* UNUSED */
+            this->statusFunc[2] = 0; /* UNUSED */
+            this->statusFunc[3] = read_rawData; /* CONV_STAT */
+            this->statusFunc[4] = touchProcess; /* COMP_STAT */
+            this->statusFunc[5] = touchProcess; /* RELEASE_STAT */
+            this->statusFunc[6] = touchProcess; /* TOUCH_STAT  */
+            this->statusFunc[7] = 0; /* RESET_STAT */
+        }
 
-    /* setup i2c communication */
-    this->bus = client;
-    i2c_set_clientdata(client, this);
+        /* setup i2c communication */
+        this->bus = client;
+        i2c_set_clientdata(client, this);
 
-    err = sx932x_Hardware_Check(this);
-    if (err > 0){
-        dev_err(&client->dev, "sx932x whoami check fail, sx932x_probe fail!\n");
-        goto exit_hardware_check;
-    }
-    sar_name = "sx9328";
+        err = sx932x_Hardware_Check(this);
+        if (err > 0){
+            dev_err(&client->dev, "sx932x whoami check fail, sx932x_probe fail!\n");
+            return err;
+        }
+        sar_name = "sx9328";
+        /*Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/03/02 start*/
+        onoff_dev = &client->dev;
+        sar_func.set_onoff = sx932_set_onoff;
+        sar_func.get_onoff = sx932_get_onoff;
+        /*Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/03/02 end*/
 
-    /* record device struct */
-    this->pdev = &client->dev;
+        /* record device struct */
+        this->pdev = &client->dev;
 
-    /* for accessing items in user data (e.g. calibrate) */
-    err = sysfs_create_group(&client->dev.kobj, &sx932x_attr_group);
-    //sysfs_create_group(client, &sx932x_attr_group);
+        /* create memory for device specific struct */
+        this->pDevice = pDevice = devm_kzalloc(&client->dev,sizeof(sx932x_t), GFP_KERNEL);
+        dev_info(&client->dev, "\t Initialized Device Specific Memory: 0x%p\n",pDevice);
 
-    /* Add Pointer to main platform data struct */
-    pDevice->hw = pplatData;
+        if (pDevice){
+            /* for accessing items in user data (e.g. calibrate) */
+            err = sysfs_create_group(&client->dev.kobj, &sx932x_attr_group);
+            //sysfs_create_group(client, &sx932x_attr_group);
 
-    /* Check if we hava a platform initialization function to call*/
-    if (pplatData->init_platform_hw) {
-        pplatData->init_platform_hw(client);
-    } else {
-        dev_err(this->pdev,"No init_platform_hw function!!!!\n");
-        err = -ENOMEM;
-        goto exit_init_platform_hw;
-    }
+            /* Add Pointer to main platform data struct */
+            pDevice->hw = pplatData;
 
-    /* Initialize the button information initialized with keycodes */
-    pDevice->pbuttonInformation = pplatData->pbuttonInformation;
-    /* Create the input device */
-    input_main_sar = input_allocate_device();
-    if (!input_main_sar) {
-        dev_err(&client->dev, "input_allocate_device main failed \n");
-        err = -ENOMEM;
-        goto exit_alloc_input_main;
-    }
+            /* Check if we hava a platform initialization function to call*/
+            if (pplatData->init_platform_hw)
+            pplatData->init_platform_hw(client);
 
-    #ifdef HQ_FACTORY_BUILD
-    /* Set the keycodes */
-    __set_bit(EV_KEY, input_main_sar->evbit);
-    __set_bit(KEY_SAR2_CLOSE,input_main_sar->keybit);
-    __set_bit(KEY_SAR2_FAR,input_main_sar->keybit);
-    #else
-    input_set_capability(input_main_sar, EV_REL, REL_MISC);
-    input_set_capability(input_main_sar, EV_REL, REL_MAX);
-    #endif
-    /* save the input pointer and finish initialization */
-    pButtonInformationData->input_main_sar = input_main_sar;
-    input_main_sar->name = "grip_sensor";
-    input_main_sar->id.bustype = BUS_I2C;
-    if(input_register_device(input_main_sar)){
-        dev_err(&client->dev, "add sar sensor main unsuccess\n");
-        input_free_device(input_main_sar);
-        err = -ENOMEM;
-        goto exit_register_input_main;
-    }
-    input_set_drvdata(input_main_sar, this);
+            /* Initialize the button information initialized with keycodes */
+            pDevice->pbuttonInformation = pplatData->pbuttonInformation;
+            /* Create the input device */
+            input_main_sar = input_allocate_device();
+            if (!input_main_sar) {
+                return -ENOMEM;
+            }
+            #ifdef HQ_FACTORY_BUILD
+            /* Set the keycodes */
+            __set_bit(EV_KEY, input_main_sar->evbit);
+            __set_bit(KEY_SAR2_CLOSE,input_main_sar->keybit);
+            __set_bit(KEY_SAR2_FAR,input_main_sar->keybit);
+            #else
+            input_set_capability(input_main_sar, EV_REL, REL_MISC);
+            input_set_capability(input_main_sar, EV_REL, REL_MAX);
+            /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 start*/
+            __set_bit(EV_REL, input_main_sar->evbit);
+            __set_bit(REL_X, input_main_sar->relbit);
+            /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 end*/
+            #endif
+            /* save the input pointer and finish initialization */
+            pButtonInformationData->input_main_sar = input_main_sar;
+            input_main_sar->name = "grip_sensor";
+            input_main_sar->id.bustype = BUS_I2C;
+            if(input_register_device(input_main_sar)){
+                return -ENOMEM;
+            }
 
-    /* Create the input device */
-    input_wifi_sar = input_allocate_device();
-    if (!input_wifi_sar) {
-        dev_err(&client->dev, "input_allocate_device top failed \n");
-        err = -ENOMEM;
-        goto exit_alloc_input_wifi;
-    }
-    #ifdef HQ_FACTORY_BUILD
-    /* Set the keycodes */
-    __set_bit(EV_KEY, input_wifi_sar->evbit);
-    __set_bit(KEY_SAR_CLOSE,input_wifi_sar->keybit);
-    __set_bit(KEY_SAR_FAR,input_wifi_sar->keybit);
-    #else
-    input_set_capability(input_wifi_sar, EV_REL, REL_MISC);
-    input_set_capability(input_wifi_sar, EV_REL, REL_MAX);
-    #endif
-    /* save the input pointer and finish initialization */
-    pButtonInformationData->input_wifi_sar = input_wifi_sar;
-    input_wifi_sar->name = "grip_sensor_wifi";
-    input_wifi_sar->id.bustype = BUS_I2C;
-    if(input_register_device(input_wifi_sar)){
-        dev_err(&client->dev, "add sar sensor wifi unsuccess\n");
-        input_free_device(input_wifi_sar);
-        err = -ENOMEM;
-        goto exit_register_input_wifi;
-    }
-    input_set_drvdata(input_wifi_sar, this);
+            /* Create the input device */
+            input_wifi_sar = input_allocate_device();
+            if (!input_wifi_sar) {
+                return -ENOMEM;
+            }
+            #ifdef HQ_FACTORY_BUILD
+            /* Set the keycodes */
+            __set_bit(EV_KEY, input_wifi_sar->evbit);
+            __set_bit(KEY_SAR_CLOSE,input_wifi_sar->keybit);
+            __set_bit(KEY_SAR_FAR,input_wifi_sar->keybit);
+            #else
+            input_set_capability(input_wifi_sar, EV_REL, REL_MISC);
+            input_set_capability(input_wifi_sar, EV_REL, REL_MAX);
+            /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 start*/
+            __set_bit(EV_REL, input_wifi_sar->evbit);
+            __set_bit(REL_X, input_wifi_sar->relbit);
+            /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 end*/
+            #endif
+            /* save the input pointer and finish initialization */
+            pButtonInformationData->input_wifi_sar = input_wifi_sar;
+            input_wifi_sar->name = "grip_sensor_wifi";
+            input_wifi_sar->id.bustype = BUS_I2C;
+            if(input_register_device(input_wifi_sar)){
+                return -ENOMEM;
+            }
 
-    for (i = 0; i < pButtonInformationData->buttonSize; i++) {
-        pButtonInformationData->buttons[i].state = IDLE;
-    }
+            for (i = 0; i < pButtonInformationData->buttonSize; i++) {
+                pButtonInformationData->buttons[i].state = IDLE;
+            }
+        }
 
 #if defined(CONFIG_SENSORS)
-    this->channel_status = 0;
-    err = sensors_register(&pplatData->factory_device, this, sensor_attrs, MODULE_NAME);
-    if (err) {
-        dev_err(&client->dev, "%s - cound not register sensor(%d).\n", __func__, err);
-        goto exit_sensors_register;
-    }
+        input_set_drvdata(input_main_sar, this);
+        input_set_drvdata(input_wifi_sar, this);
+        this->channel_status = 0;
+        err = sensors_register(&pplatData->factory_device, this, sensor_attrs, MODULE_NAME);
+        if (err) {
+            dev_err(&client->dev, "%s - cound not register sensor(%d).\n", __func__, err);
+            return -ENOMEM;
+        }
 
-    err = sensors_register(&pplatData->factory_device_wifi, this, wifi_sensor_attrs, WIFI_MODULE_NAME);
-    if (err) {
-        dev_err(&client->dev, "%s - cound not register sensor(%d).\n", __func__, err);
-        goto exit_sensors_register_wifi;
-    }
+        err = sensors_register(&pplatData->factory_device_wifi, this, wifi_sensor_attrs, WIFI_MODULE_NAME);
+        if (err) {
+            dev_err(&client->dev, "%s - cound not register wifi sensor(%d).\n", __func__, err);
+            return -ENOMEM;
+        }
 
-    err = sysfs_create_group(&input_main_sar->dev.kobj, &ss_sx932x_attributes_group);
-    if (err) {
-        dev_err(&client->dev, "cound not create input bottom group\n");
-        goto exit_input_create;
-    }
+        err = sysfs_create_group(&input_main_sar->dev.kobj, &ss_sx932x_attributes_group);
+        if (err) {
+            dev_err(&client->dev, "cound not create input main group\n");
+            return -ENOMEM;
+        }
 
-    err = sysfs_create_group(&input_wifi_sar->dev.kobj, &ss_sx932x_attributes_group);
-    if (err) {
-        dev_err(&client->dev, "cound not create input top group\n");
-        goto exit_input_create;
-    }
+        err = sysfs_create_group(&input_wifi_sar->dev.kobj, &ss_sx932x_attributes_group);
+        if (err) {
+            dev_err(&client->dev, "cound not create input wifi group\n");
+            return -ENOMEM;
+        }
 #endif
 
-    sx93XX_IRQ_init(this);
-    /* call init function pointer (this should initialize all registers */
-    if (this->init){
-        this->init(this);
+        sx93XX_IRQ_init(this);
+        /* call init function pointer (this should initialize all registers */
+        if (this->init){
+            this->init(this);
+        }else{
+            dev_err(this->pdev,"No init function!!!!\n");
+            return -ENOMEM;
+        }
     }else{
-        dev_err(this->pdev,"No init function!!!!\n");
-        err = -ENOMEM;
-        goto exit_no_init;
+        return -1;
     }
-
    /*TabA7 Lite code for OT8-1296 by Hujincan at 20210117 start*/
     #ifdef SAR_USB_CALIBRATION
     sar_plat_charger_init(this);
@@ -1364,36 +1489,8 @@ static int sx932x_probe(struct i2c_client *client, const struct i2c_device_id *i
     dev_info(&client->dev, "sx932x_probe() Done\n");
 
     return 0;
-
-exit_no_init:
-#if defined(CONFIG_SENSORS)
-    sysfs_remove_group(&input_main_sar->dev.kobj,&ss_sx932x_attributes_group);
-    sysfs_remove_group(&input_wifi_sar->dev.kobj,&ss_sx932x_attributes_group);
-exit_input_create:
-    sensors_unregister(pplatData->factory_device_wifi, wifi_sensor_attrs);
-exit_sensors_register_wifi:
-    sensors_unregister(pplatData->factory_device, sensor_attrs);
-exit_sensors_register:
-#endif
-    input_unregister_device(input_wifi_sar);
-exit_register_input_wifi:
-exit_alloc_input_wifi:
-    input_unregister_device(input_main_sar);
-exit_register_input_main:
-exit_alloc_input_main:
-exit_init_platform_hw:
-exit_hardware_check:
-exit_no_device:
-    devm_kfree(&client->dev, pButtonInformationData);
-exit_alloc_button_info:
-    devm_kfree(&client->dev, pDevice);
-exit_alloc_dev:
-    devm_kfree(&client->dev, this);
-exit_alloc_mem:
-    devm_kfree(&client->dev, pplatData);
-    return err;
 }
-/*TabA7 Lite code for OT8-2505 by Hujincan at 20210202 end*/
+/*TabA7 Lite code for OT8-2505|OT8-5204 by Hujincan at 20211019 end*/
 
 /*! \fn static int sx932x_remove(struct i2c_client *client)
  * \brief Called when device is to be removed
@@ -1510,15 +1607,19 @@ static void sx93XX_schedule_work(psx93XX_t this, unsigned long delay)
     }
     else
         printk(KERN_ERR "sx93XX_schedule_work, NULL psx93XX_t\n");
-} 
-
+}
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 start*/
 static irqreturn_t sx93XX_irq(int irq, void *pvoid)
 {
     psx93XX_t this = 0;
+    printk(KERN_ERR "sx93XX_irq start\n");
     if (pvoid) {
         this = (psx93XX_t)pvoid;
         if ((!this->get_nirq_low) || this->get_nirq_low()) {
-        sx93XX_schedule_work(this,0);
+            sx93XX_schedule_work(this,0);
+            if (g_irq_sign < 12) {
+                g_irq_sign++;
+            }
         }
         else{
             dev_err(this->pdev, "sx93XX_irq - nirq read high\n");
@@ -1529,7 +1630,6 @@ static irqreturn_t sx93XX_irq(int irq, void *pvoid)
     }
     return IRQ_HANDLED;
 }
-
 static void sx93XX_worker_func(struct work_struct *work)
 {
     psx93XX_t this = 0;
@@ -1551,8 +1651,12 @@ static void sx93XX_worker_func(struct work_struct *work)
         /* since we are not in an interrupt don't need to disable irq. */
         status = this->refreshStatus(this);
         counter = -1;
-        dev_dbg(this->pdev, "Worker - Refresh Status %d\n",status);
-        
+        if ((status >> 4) & 0x01) {
+            g_cali_sign++;
+        }
+        dev_err(this->pdev, "sx932x g_cali_sign == %d", g_cali_sign);
+        dev_err(this->pdev, "Worker - Refresh Status %d\n", status);
+
         while((++counter) < MAX_NUM_STATUS_BITS) { /* counter start from MSB */
             if (((status>>counter) & 0x01) && (this->statusFunc[counter])) {
                 dev_info(this->pdev, "SX932x Function Pointer Found. Calling\n");
@@ -1568,7 +1672,7 @@ static void sx93XX_worker_func(struct work_struct *work)
         printk(KERN_ERR "sx93XX_worker_func, NULL work_struct\n");
     }
 }
-
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 end*/
 int sx93XX_remove(psx93XX_t this)
 {
     if (this) {
@@ -1580,24 +1684,22 @@ int sx93XX_remove(psx93XX_t this)
     }
     return -ENOMEM;
 }
-/*TabA7 Lite code for OT8-3208 by Hujincan at 20210315 start*/
+/*TabA7 Lite code for OT8-3208|OT8-4719 by Hujincan at 20210419 start*/
 void sx93XX_suspend(psx93XX_t this)
 {
-    if (this){
+    if (0){
         dev_info(this->pdev, "sx932x_suspend!\n");
-        disable_irq(this->irq);
-        write_register(this,SX932x_CTRL1_REG,0x20);//make sx932x in Sleep mode
+        write_register(this,SX932x_CTRL1_REG,0x07);//make sx932x in Stop mode
     }
 }
 void sx93XX_resume(psx93XX_t this)
 {
-    if (this) {
+    if (0) {
         dev_info(this->pdev, "sx932x_resume!\n");
-        enable_irq(this->irq);
-        write_register(this,SX932x_CTRL1_REG,0x27);//make sx932x in Active mode
+        //write_register(this,SX932x_CTRL1_REG,0x27);//make sx932x in Active mode
     }
 }
-/*TabA7 Lite code for OT8-3208 by Hujincan at 20210315 end*/
+/*TabA7 Lite code for OT8-3208|OT8-4719 by Hujincan at 20210419 end*/
 
 int sx93XX_IRQ_init(psx93XX_t this)
 {

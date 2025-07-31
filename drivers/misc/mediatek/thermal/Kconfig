@@ -23,12 +23,3 @@ config MTK_LEGACY_THERMAL_PLATFORM
 	  drivers. Config platform name for your
 	  selection. It's used for legacy thermal
 	  drivers only.
-
-# TabA7 Lite code for SR-AX3565-01-55 remove pa thermal in wifi-only by wenyaqi at 20201225 start
-config NO_PA_NTC
-	bool "Remove PA NTC"
-	default n
-	help
-	  If NO_PA_NTC is true, it means there is no PA
-	  NTC, and the temp of PA will set to 25 degree.
-# TabA7 Lite code for SR-AX3565-01-55 remove pa thermal in wifi-only by wenyaqi at 20201225 end

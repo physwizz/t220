@@ -37,11 +37,13 @@ static unsigned long g_u4AF_INF;
 static unsigned long g_u4AF_MACRO = 1023;
 static unsigned long g_u4CurrPosition;
 
-static int s4AF_WriteReg(u8 a_u2Addr, u8 a_u2Data)
+/* A03s code for CAM-AL5625-01-247 by xuxianwei at 2021/06/12 start */
+static int s4AF_WriteReg(u16 a_u2Data)
 {
 	int i4RetValue = 0;
 
-	char puSendCmd[2] = {(char)a_u2Addr, (char)a_u2Data};
+	char puSendCmd[2] = {(char)(a_u2Data >> 4),
+			     (char)((a_u2Data & 0xF) << 4)};
 
 	g_pstAF_I2Cclient->addr = AF_I2C_SLAVE_ADDR;
 
@@ -82,67 +84,10 @@ static inline int getAFInfo(__user struct stAF_MotorInfo *pstMotorInfo)
 	return 0;
 }
 
-
-
-static int i2c_read(u8 a_u2Addr, u8 *a_puBuff)
-{
-	int i4RetValue = 0;
-	char puReadCmd[1] = {(char)(a_u2Addr)};
-
-	g_pstAF_I2Cclient->addr = AF_I2C_SLAVE_ADDR;
-
-	g_pstAF_I2Cclient->addr = g_pstAF_I2Cclient->addr >> 1;
-	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puReadCmd, 1);
-	if (i4RetValue < 0) {
-		LOG_INF(" I2C write failed!!\n");
-		return -1;
-	}
-
-	i4RetValue = i2c_master_recv(g_pstAF_I2Cclient, (char *)a_puBuff, 1);
-	if (i4RetValue < 0) {
-		LOG_INF(" I2C read failed!!\n");
-		return -1;
-	}
-
-	return 0;
-}
-
-static u8 read_data(u8 addr)
-{
-	u8 get_byte = 0xFF;
-
-	i2c_read(addr, &get_byte);
-
-	return get_byte;
-}
-
-
 /* initAF include driver initialization and standby mode */
 static int initAF(void)
 {
-
-	u8 data = 0xFF;
-
 	LOG_INF("+\n");
-
-	mdelay(10);
-
-	data = read_data(0x00);
-	LOG_INF("module id:%d\n", data);
-	s4AF_WriteReg(0x02, 0x01);
-	s4AF_WriteReg(0x02, 0x00);
-	mdelay(5);
-	s4AF_WriteReg(0x02, 0x02);//ring
-	//s4AF_WriteReg(0x06, 0xA4);//101__100 sac4 with x8
-	s4AF_WriteReg(0x06, 0xA2);//101__011 sac4 with /2
-	mdelay(5);
-	s4AF_WriteReg(0x07, 0x3f);//00111111 SACT
-	//s4AF_WriteReg(0x07, 0x00);//00111111 SACT
-	mdelay(1);
-	s4AF_WriteReg(0x0A, 0x00);
-	s4AF_WriteReg(0x0B, 0x01);
-	s4AF_WriteReg(0x0C, 0xFF);
-	s4AF_WriteReg(0x11, 0x00);
 
 	if (*g_pAF_Opened == 1) {
 
@@ -162,8 +107,7 @@ static inline int moveAF(unsigned long a_u4Position)
 {
 	int ret = 0;
 
-	if (s4AF_WriteReg(0x03, (unsigned short)(a_u4Position>>8)) == 0 &&
-	s4AF_WriteReg(0x04, (unsigned short)(a_u4Position&0xff)) == 0) {
+	if (s4AF_WriteReg((unsigned short)a_u4Position) == 0) {
 		g_u4CurrPosition = a_u4Position;
 		ret = 0;
 	} else {
@@ -239,30 +183,23 @@ long FP5519AF_Ioctl(struct file *a_pstFile, unsigned int a_u4Command,
 /* Q1 : Try release multiple times. */
 int FP5519AF_Release(struct inode *a_pstInode, struct file *a_pstFile)
 {
-
-	int noTickSoundDAC[] = {300, 280, 260, 245, 230, 220, 210};
-	//faster, only 8 steps*SAC time to leave. Barely able to hear sound.
-	int i = 0;
-
 	LOG_INF("Start\n");
 
 	if (*g_pAF_Opened == 2) {
 		LOG_INF("Wait\n");
-	//	s4AF_WriteReg(0x80); /* Power down mode */
+	        s4AF_WriteReg(200); /* Power down mode */
+                msleep(20);
+                s4AF_WriteReg(30);
+                msleep(20);
+                s4AF_WriteReg(10);
+                msleep(20);
+                s4AF_WriteReg(5);
+                msleep(20);
 	}
 
 	if (*g_pAF_Opened) {
 		LOG_INF("Free\n");
 
-	if (g_u4AF_INF < g_u4CurrPosition) {
-		for (i = 0; i < ARRAY_SIZE(noTickSoundDAC); i++) {
-			LOG_INF("now at dac %d\n", noTickSoundDAC[i]);
-			moveAF(noTickSoundDAC[i]);
-			while (read_data(0x05) != 0x00)
-				mdelay(1);
-			g_u4CurrPosition = noTickSoundDAC[i];
-		}
-	}
 		spin_lock(g_pAF_SpinLock);
 		*g_pAF_Opened = 0;
 		spin_unlock(g_pAF_SpinLock);
@@ -284,7 +221,7 @@ int FP5519AF_SetI2Cclient(struct i2c_client *pstAF_I2Cclient,
 
 	return 1;
 }
-
+/* A03s code for CAM-AL5625-01-247 by xuxianwei at 2021/06/12 end */
 int FP5519AF_GetFileName(unsigned char *pFileName)
 {
 	#if SUPPORT_GETTING_LENS_FOLDER_NAME

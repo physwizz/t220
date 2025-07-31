@@ -2,7 +2,7 @@
 /*
  * Copyright (C) 2020.
  */
-/*TabA7 Lite code for P210115-00631 by wenyaqi at 20210115 start*/
+/*HS03s for SR-AL5625-01-250 by wenyaqi at 20210426 start*/
 
 #include <linux/device.h>
 #include <linux/module.h>
@@ -51,14 +51,14 @@ static int update_usb_connector_state(void)
 
 	// USB Temp over HOT_TEMP, stop charging, below WARM_TEMP, re-charging
 	if (usb_temp >= CHG_ALERT_HOT_TEMP && usb_state_old != usb_state) { //USB thermal >= 70
-		/*TabA7 Lite code for OT8-3638 import D85 policy by wenyaqi at 20210301 start*/
+		/*HS03s for SR-AL5625-01-248 by wenyaqi at 20210429 start*/
 		#ifdef HQ_D85_BUILD
 		pr_err("[%s]line=%d: USB connector hot, there is no operation in D85\n", __func__, __LINE__);
 		#else
 		vbus_ctrl_state(VBUS_CTRL_HIGH);
 		pr_err("[%s]line=%d: USB connector hot, connect VBUS to GND\n", __func__, __LINE__);
 		#endif
-		/*TabA7 Lite code for OT8-3638 import D85 policy by wenyaqi at 20210301 end*/
+		/*HS03s for SR-AL5625-01-248 by wenyaqi at 20210429 end*/
 	} else if (usb_temp < CHG_ALERT_WARM_TEMP && usb_state_old != usb_state) { //USB thermal < 60
 		vbus_ctrl_state(VBUS_CTRL_LOW);
 		pr_err("[%s]line=%d: USB connector GOOD, disconnect VBUS to GND\n", __func__, __LINE__);
@@ -174,4 +174,4 @@ module_exit(vbus_ctrl_exit);
 MODULE_AUTHOR("zh");
 MODULE_DESCRIPTION("vbus ctrl driver");
 MODULE_LICENSE("GPL");
-/*TabA7 Lite code for P210115-00631 by wenyaqi at 20210115 end*/
+/*HS03s for SR-AL5625-01-250 by wenyaqi at 20210426 end*/

@@ -1,5 +1,4 @@
-/*TabA7 Lite code for OT8-106 add afc charger driver by wenyaqi at 20201210 start*/
-/*TabA7 Lite code for P201230-05004 optimize afc driver by wenyaqi at 20210114 start*/
+/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
 #ifndef _AFC_CHARGER_INTF
 #define _AFC_CHARGER_INTF
 
@@ -88,5 +87,4 @@ struct afc_dev {
 };
 
 #endif /* _AFC_CHSRGER_INTF */
-/*TabA7 Lite code for P201230-05004 optimize afc driver by wenyaqi at 20210114 end*/
-/*TabA7 Lite code for OT8-106 add afc charger driver by wenyaqi at 20201210 start*/
+/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/

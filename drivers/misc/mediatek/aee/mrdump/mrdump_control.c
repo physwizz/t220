@@ -98,15 +98,8 @@ __init void mrdump_cblock_init(phys_addr_t cb_addr, phys_addr_t cb_size)
 	machdesc_p->kimage_etext = (uint64_t)aee_get_etext();
 	machdesc_p->kimage_stext_real = (uint64_t)aee_get_stext();
 #if defined(CONFIG_ARM64)
-#ifdef HQ_FACTORY_BUILD
 	machdesc_p->kimage_voffset = kimage_voffset;
-#else
-	machdesc_p->kimage_voffset = aee_get_kimage_vaddr();
 #endif
-#endif
-	machdesc_p->kimage_sdata = (uint64_t)aee_get_sdata();
-	machdesc_p->kimage_edata = (uint64_t)aee_get_edata();
-
 	machdesc_p->vmalloc_start = (uint64_t)VMALLOC_START;
 	machdesc_p->vmalloc_end = (uint64_t)VMALLOC_END;
 

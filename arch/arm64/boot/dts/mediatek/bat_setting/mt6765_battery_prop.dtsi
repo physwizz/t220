@@ -13,17 +13,13 @@
 	KEEP_100_PERCENT = <(1)>;
 	R_FG_VALUE = <(10)>;
 	/* R_sense resistance */
-	/*TabA7 Lite code for SR-AX3565-01-181 set built-in battery mode by wenyaqi at 20210109 start*/
 	EMBEDDED_SEL = <(1)>;
-	/*TabA7 Lite code for SR-AX3565-01-181 set built-in battery mode by wenyaqi at 20210109 end*/
 	/* Configures whether using embedded battery or not */
 	PMIC_SHUTDOWN_CURRENT = <(20)>;
 	/* System shutdown current */
 	FG_METER_RESISTANCE = <(75)>;
 	/* The resistance of PCB */
-	/* TabA7 Lite code for OT8-609 modify battery capcity accuracy by shixuanxuan at 20210104 start */
-	CAR_TUNE_VALUE = <(101)>;
-	/* TabA7 Lite code for OT8-609 modify battery capcity accuracy by shixuanxuan at 20210104 end */
+	CAR_TUNE_VALUE = <(100)>;
 	/* Tune value for current measurement */
 	PMIC_MIN_VOL = <(33500)>;
 	/* vboot voltage for gauge 0%*/
@@ -39,22 +35,20 @@
 	/* Battery temperature T2 */
 	TEMPERATURE_T3 = <(0)>;
 	/* Battery temperature T3 */
-	TEMPERATURE_T4 = <(-6)>;
+	TEMPERATURE_T4 = <(-10)>;
 	/* Battery temperature T4 */
-	TEMPERATURE_T5 = <(-10)>;
+	TEMPERATURE_T5 = <(-20)>;
 	/* Battery temperature T5 */
-	/* TabA7 Lite code for OT8-609 modify battery capcity accuracy by shixuanxuan at 20210104 start */
-	g_FG_PSEUDO100_T0 = <(98)>;
+	g_FG_PSEUDO100_T0 = <(100)>;
 	/* Pseudo 100% percentage at T0 */
-	g_FG_PSEUDO100_T1 = <(98)>;
+	g_FG_PSEUDO100_T1 = <(100)>;
 	/* Pseudo 100% percentage at T1 */
-	g_FG_PSEUDO100_T2 = <(98)>;
+	g_FG_PSEUDO100_T2 = <(99)>;
 	/* Pseudo 100% percentage at T2 */
-	g_FG_PSEUDO100_T3 = <(98)>;
+	g_FG_PSEUDO100_T3 = <(99)>;
 	/* Pseudo 100% percentage at T3 */
-	g_FG_PSEUDO100_T4 = <(98)>;
+	g_FG_PSEUDO100_T4 = <(100)>;
 	/* Pseudo 100% percentage at T4 */
-	/* TabA7 Lite code for OT8-609 modify battery capcity accuracy by shixuanxuan at 20210104 end */
 	Q_MAX_SYS_VOLTAGE_BAT0 = <(3350)>;
 	/* Pseudo1 for hide percentage */
 	Q_MAX_SYS_VOLTAGE_BAT1 = <(3350)>;
@@ -73,9 +67,18 @@
 	/* Table numbers per battery */
 	MULTI_TEMP_GAUGE0 = <(1)>;
 	/* Multi gauge0 enable */
-	/*Tab A7 Lite code for SR-AX3565-01-55 modify bat temp ntc by wenyaqi at 20201119 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
+	/* modify code for O6 */
+	RBAT_PULL_UP_R = <(16900)>;
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+	/* modify code for O6 */
+	RBAT_PULL_UP_R = <(16900)>;
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+	/* modify code for O8 */
 	RBAT_PULL_UP_R = <(390000)>;
-	/*Tab A7 Lite code for SR-AX3565-01-55 modify bat temp ntc by wenyaqi at 20201119 end*/
+#endif
 	RBAT_PULL_UP_VOLT = <(1800)>;
 
 #include "mt6765_battery_table_ext.dtsi"

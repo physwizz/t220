@@ -35,7 +35,6 @@
 #include <linux/pm_runtime.h>
 #include <linux/arm-smccc.h>
 #include <linux/soc/mediatek/mtk_sip_svc.h>
-#include <linux/sec_class.h>
 
 #include "mtk_sd.h"
 #include <mmc/core/core.h>
@@ -43,6 +42,7 @@
 #include <mmc/core/host.h>
 #include <mmc/core/queue.h>
 #include <mmc/core/mmc_ops.h>
+#include "mmc-sec-sysfs.h"
 
 #ifdef MTK_MSDC_BRINGUP_DEBUG
 //#include <mach/mt_pmic_wrap.h>
@@ -57,20 +57,6 @@
 #include "dbg.h"
 
 #define CAPACITY_2G             (2 * 1024 * 1024 * 1024ULL)
-
-#define UNSTUFF_BITS(resp,start,size)					\
-	({								\
-		const int __size = size;				\
-		const u32 __mask = (__size < 32 ? 1 << __size : 0) - 1;	\
-		const int __off = 3 - ((start) / 32);			\
-		const int __shft = (start) & 31;			\
-		u32 __res;						\
-									\
-		__res = resp[__off] >> __shft;				\
-		if (__size + __shft > 32)				\
-			__res |= resp[__off-1] << ((32 - __shft) % 32);	\
-		__res & __mask;						\
-	})
 
 /* FIX ME: Check if its reference in mtk_sd_misc.h can be removed */
 u32 g_emmc_mode_switch;
@@ -711,11 +697,9 @@ static void msdc_set_busy_timeout_ms(struct msdc_host *host, u32 ms)
 	}
 	MSDC_SET_FIELD(SDC_CFG, SDC_CFG_WRDTOC, (u32)timeout);
 
-	N_MSG(OPS, "Set CMD%d busy tmo: %dms(%d x1M cycles), freq=%dKHz\n",
-		host->cmd->opcode,
+	N_MSG(OPS, "Set busy tmo: %dms(%d x1M cycles), freq=%dKHz\n",
 		(ms > host->max_busy_timeout_ms) ? host->max_busy_timeout_ms :
-		ms,
-		(u32)timeout + 1, (host->sclk / 1000));
+		ms, (u32)timeout + 1, (host->sclk / 1000));
 }
 
 static void msdc_set_timeout(struct msdc_host *host, u32 ns, u32 clks)
@@ -3573,9 +3557,12 @@ int msdc_error_tuning(struct mmc_host *mmc,  struct mmc_request *mrq)
 	}
 
 	/* send stop command if device not in transfer state */
-	if (R1_CURRENT_STATE(status) != R1_STATE_TRAN &&
-		msdc_stop_and_wait_busy(host))
-		goto recovery;
+	if (R1_CURRENT_STATE(status) == R1_STATE_DATA ||
+		R1_CURRENT_STATE(status) == R1_STATE_RCV) {
+		ret = msdc_stop_and_wait_busy(host);
+		if (ret)
+			goto recovery;
+	}
 
 start_tune:
 	msdc_pmic_force_vcore_pwm(true);
@@ -4446,8 +4433,15 @@ static int msdc_ops_switch_volt(struct mmc_host *mmc, struct mmc_ios *ios)
 		 * Must keep clock gate 5ms before switch voltage
 		 */
 		usleep_range(10000, 10500);
+
 		/* set as 500T -> 1.25ms for 400KHz or 1.9ms for 260KHz */
 		msdc_set_vol_change_wait_count(VOL_CHG_CNT_DEFAULT_VAL);
+
+		/*  CMD11 will enable SWITCH detect while mmc core layer trriger
+		 *  switch voltage flow without cmd11 for somecase,so also enable switch
+		 *  detect before switch.Otherwise will hang in this func.
+		 */
+		MSDC_SET_BIT32(SDC_CMD, SDC_CMD_VOLSWTH);
 		/* start to provide clock to device */
 		MSDC_SET_BIT32(MSDC_CFG, MSDC_CFG_BV18SDT);
 		/* Delay 1ms wait HW to finish voltage switch */
@@ -4675,6 +4669,7 @@ skip:
 			 * if data CRC error
 			 */
 			mrq->cmd->error = (unsigned int)-EILSEQ;
+			pr_err("saved intsts: 0x%08x\n", host->intsts);
 		} else {
 			dbg_add_host_log(host->mmc, 3, 0, 0);
 			msdc_dma_clear(host);
@@ -4968,133 +4963,6 @@ static void msdc_dvfs_kickoff(struct work_struct *work)
 {
 }
 
-static struct device *mmccard_dev;
-static char un_buf[21];
-#define UN_LENGTH 20
-static int __init un_boot_state_param(char *line)
-{
-	if (strlen(line) == UN_LENGTH)
-		strncpy(un_buf, line, UN_LENGTH);
-	else
-		pr_err("%s: androidboot.un %s does not match the UN_LENGTH.\n", __func__, line);
-
-	return 1;
-}
-__setup("androidboot.un=", un_boot_state_param);
-
-static ssize_t mmc_gen_unique_number_show(struct device *dev,
-		struct device_attribute *attr,
-		char *buf)
-{
-	struct mmc_host *host = dev_get_drvdata(dev);
-	struct mmc_card *card = host->card;
-	ssize_t n = 0;
-
-	n = sprintf(buf, "H%02X%02X%02X%X%02X%08X%02X\n",
-			card->cid.manfid, card->cid.prod_name[0], card->cid.prod_name[1],
-			card->cid.prod_name[2]>>4, card->cid.prv, card->cid.serial,
-			UNSTUFF_BITS(card->raw_cid, 8, 8));
-
-
-	if (strncmp(un_buf, buf, UN_LENGTH) != 0) {
-		pr_info("%s: eMMC UN mismatch\n", __func__);
-		BUG_ON(1);
-	}
-
-	return n;
-}
-
-static DEVICE_ATTR(un, (S_IRUSR|S_IRGRP), mmc_gen_unique_number_show, NULL);
-
-static struct device *sd_info_dev;
-static ssize_t sd_cid_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct mmc_host *host = dev_get_drvdata(dev);
-	struct mmc_card *card = host->card;
-	int len = 0;
-
-	if (!card) {
-		len = snprintf(buf, PAGE_SIZE, "no card\n");
-		goto out;
-	}
-
-	len = snprintf(buf, PAGE_SIZE,
-			"%08x%08x%08x%08x\n",
-			card->raw_cid[0], card->raw_cid[1],
-			card->raw_cid[2], card->raw_cid[3]);
-out:
-	return len;
-}
-
-static ssize_t sd_health_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct mmc_host *host = dev_get_drvdata(dev);
-	struct mmc_card *card = host->card;
-	struct mmc_card_error_log *err_log;
-	u64 total_c_cnt = 0;
-	u64 total_t_cnt = 0;
-	int len = 0;
-	int i = 0;
-
-	if (!card) {
-		//There should be no spaces in 'No Card'(Vold Team).
-		len = snprintf(buf, PAGE_SIZE, "NOCARD\n");
-		goto out;
-	}
-
-	err_log = card->err_log;
-
-	for (i = 0; i < 6; i++) {
-		if (err_log[i].err_type == -EILSEQ && total_c_cnt < MAX_CNT_U64)
-			total_c_cnt += err_log[i].count;
-		if (err_log[i].err_type == -ETIMEDOUT && total_t_cnt < MAX_CNT_U64)
-			total_t_cnt += err_log[i].count;
-	}
-
-	if(err_log[0].ge_cnt > 100 || err_log[0].ecc_cnt > 0 || err_log[0].wp_cnt > 0 ||
-			err_log[0].oor_cnt > 10 || total_t_cnt > 100 || total_c_cnt > 100)
-		len = snprintf(buf, PAGE_SIZE, "BAD\n");
-	else
-		len = snprintf(buf, PAGE_SIZE, "GOOD\n");
-
-out:
-	return len;
-}
-
-static ssize_t sd_count_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{	
-	struct mmc_host *host = dev_get_drvdata(dev);
-	struct mmc_card *card = host->card;
-	struct mmc_card_error_log *err_log;
-	u64 total_cnt = 0;
-	int len = 0;
-	int i = 0;
-
-	if (!card) {
-		len = snprintf(buf, PAGE_SIZE, "no card\n");
-		goto out;
-	}
-
-	err_log = card->err_log;
-
-	for (i = 0; i < 6; i++) {
-		if (total_cnt < MAX_CNT_U64)
-			total_cnt += err_log[i].count;
-	}
-	len = snprintf(buf, PAGE_SIZE, "%lld\n", total_cnt);
-
-out:
-	return len;
-}
-
-
-static DEVICE_ATTR(data, 0444, sd_cid_show, NULL);
-static DEVICE_ATTR(fc, 0444, sd_health_show, NULL);
-static DEVICE_ATTR(sd_count, 0444, sd_count_show, NULL);
-
 static int msdc_drv_probe(struct platform_device *pdev)
 {
 	struct mmc_host *mmc = NULL;
@@ -5139,11 +5007,8 @@ static int msdc_drv_probe(struct platform_device *pdev)
 	if (host->hw->host_function == MSDC_EMMC)
 		mmc->caps |= MMC_CAP_CMD23;
 #endif
-
-#ifndef CONFIG_MMC_BLOCK_DEFERRED_RESUME
 	if (host->hw->host_function == MSDC_SD)
 		mmc->caps |= MMC_CAP_AGGRESSIVE_PM;
-#endif
 
 	mmc->caps |= MMC_CAP_ERASE;
 
@@ -5157,7 +5022,10 @@ static int msdc_drv_probe(struct platform_device *pdev)
 	 * R1B will change to R1, host will not detect DAT0 busy,
 	 * next CMD may send to eMMC at busy state.
 	 */
-	mmc->max_busy_timeout = 0;
+	if (host->id == 0)
+		mmc->max_busy_timeout = 0;
+	else if (host->id == 1)
+		mmc->max_busy_timeout = SD_ERASE_TIMEOUT_MS;
 
 	/* MMC core transfer sizes tunable parameters */
 	mmc->max_segs = MAX_HW_SGMTS;
@@ -5320,39 +5188,10 @@ static int msdc_drv_probe(struct platform_device *pdev)
 	msdc_dump_clock_sts(NULL, 0, NULL, host);
 #endif
 
-	if (host->hw->host_function == MSDC_EMMC) {
+	if (host->hw->host_function == MSDC_EMMC)
 		msdc_debug_proc_init_bootdevice();
 
-		mmccard_dev = sec_device_create(NULL, "mmc");
-		if (IS_ERR(mmccard_dev))
-			pr_err("%s : Failed to create device\n", __func__);
-
-		if (device_create_file(mmccard_dev,
-				&dev_attr_un) < 0)
-			pr_err("%s : Failed to create device file(%s)!\n",
-				__func__, dev_attr_un.attr.name);
-
-		dev_set_drvdata(mmccard_dev, mmc);
-	}
-
-	if(host->hw->host_function == MSDC_SD){
-
-		/*sdinfo*/
-		sd_info_dev = sec_device_create(NULL, "sdinfo");
-		if(IS_ERR(sd_info_dev))
-			pr_err("%s : Failed to create device\n", __func__);
-
-		if(device_create_file(sd_info_dev, &dev_attr_data) < 0)
-			pr_err("%s : Failed to cteate sdcard sysfs\n");
-
-		if(device_create_file(sd_info_dev, &dev_attr_fc) < 0)
-			pr_err("%s : Failed to cteate sdcard sysfs\n");
-
-		if(device_create_file(sd_info_dev, &dev_attr_sd_count) < 0)
-			pr_err("%s : Failed to cteate sdcard sysfs\n");
-
-		dev_set_drvdata(sd_info_dev, mmc);
-	}
+	mmc_sec_init_sysfs(mmc);
 
 	return 0;
 

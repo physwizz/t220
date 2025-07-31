@@ -155,8 +155,14 @@ int pe_hal_get_ibat(struct chg_alg_device *alg)
 		return -EINVAL;
 
 	pe = dev_get_drvdata(&alg->dev);
-	bat_psy = devm_power_supply_get_by_phandle(&pe->pdev->dev,
-						       "gauge");
+	bat_psy = pe->bat_psy;
+
+	if (bat_psy == NULL || IS_ERR(bat_psy)) {
+		pr_notice("%s retry to get pe->bat_psy\n", __func__);
+		bat_psy = devm_power_supply_get_by_phandle(&pe->pdev->dev, "gauge");
+		pe->bat_psy = bat_psy;
+	}
+
 	if (bat_psy == NULL || IS_ERR(bat_psy)) {
 		pr_notice("%s Couldn't get bat_psy\n", __func__);
 		ret = 0;
@@ -184,7 +190,7 @@ int pe_hal_get_charging_current(struct chg_alg_device *alg,
 		charger_dev_get_charging_current(hal->chg1_dev, ua);
 	else if (chgidx == CHG2 && hal->chg2_dev != NULL)
 		charger_dev_get_charging_current(hal->chg2_dev, ua);
-	pr_notice("%s idx:%d %d\n", __func__, chgidx, ua);
+	//pr_notice("%s idx:%d %d\n", __func__, chgidx, ua);
 
 	return 0;
 }
@@ -232,11 +238,10 @@ int pe_hal_set_mivr(struct chg_alg_device *alg, enum chg_idx chgidx, int uV)
 	return ret;
 }
 
-/*TabA7 Lite code for OT8-4115 by wenyaqi at 20210316 start*/
 int pe_hal_get_uisoc(struct chg_alg_device *alg)
 {
 	union power_supply_propval prop;
-	static struct power_supply *bat_psy;
+	struct power_supply *bat_psy = NULL;
 	int ret;
 	struct mtk_pe *pe;
 
@@ -244,9 +249,14 @@ int pe_hal_get_uisoc(struct chg_alg_device *alg)
 		return -EINVAL;
 
 	pe = dev_get_drvdata(&alg->dev);
-	if (bat_psy == NULL)
-		bat_psy = devm_power_supply_get_by_phandle(&pe->pdev->dev,
-						       "gauge");
+	bat_psy = pe->bat_psy;
+
+	if (bat_psy == NULL || IS_ERR(bat_psy)) {
+		pr_notice("%s retry to get pe->bat_psy\n", __func__);
+		bat_psy = devm_power_supply_get_by_phandle(&pe->pdev->dev, "gauge");
+		pe->bat_psy = bat_psy;
+	}
+
 	if (bat_psy == NULL || IS_ERR(bat_psy)) {
 		pr_notice("%s Couldn't get bat_psy\n", __func__);
 		ret = 50;
@@ -256,22 +266,20 @@ int pe_hal_get_uisoc(struct chg_alg_device *alg)
 		ret = prop.intval;
 	}
 
-	pr_notice("%s:%d\n", __func__,
-		ret);
+	//pr_notice("%s:%d\n", __func__,ret);
 	return ret;
 }
 
 int pe_hal_get_charger_type(struct chg_alg_device *alg)
 {
 	struct mtk_charger *info = NULL;
-	static struct power_supply *chg_psy;
+	struct power_supply *chg_psy = NULL;
 	int ret = 0;
 
 	if (alg == NULL)
 		return -EINVAL;
 
-	if (chg_psy == NULL)
-		chg_psy = power_supply_get_by_name("mtk-master-charger");
+	chg_psy = power_supply_get_by_name("mtk-master-charger");
 	if (chg_psy == NULL || IS_ERR(chg_psy)) {
 		pr_notice("%s Couldn't get chg_psy\n", __func__);
 		return -EINVAL;
@@ -282,10 +290,9 @@ int pe_hal_get_charger_type(struct chg_alg_device *alg)
 		ret = info->chr_type;
 	}
 
-	pr_notice("%s type:%d\n", __func__, ret);
+	//pr_notice("%s type:%d\n", __func__, ret);
 	return info->chr_type;
 }
-/*TabA7 Lite code for OT8-4115 by wenyaqi at 20210316 end*/
 
 int pe_hal_send_ta_current_pattern(struct chg_alg_device *alg,
 					  bool increase)

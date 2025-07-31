@@ -228,7 +228,7 @@ static inline struct page *__page_cache_alloc(gfp_t gfp)
 	if ((gfp & GFP_HIGHUSER_MOVABLE) == GFP_HIGHUSER_MOVABLE)
 		return alloc_pages(gfp | __GFP_CMA, 0);
 	else
-	return alloc_pages(gfp, 0);
+		return alloc_pages(gfp, 0);
 }
 #endif
 

@@ -79,6 +79,7 @@ extern struct pinctrl *lcd_pinctrl1;
 extern struct pinctrl_state *lcd_disp_pwm;
 extern struct pinctrl_state *lcd_disp_pwm_gpio;
 
+extern bool g_system_is_shutdown;
 
 
 /* ----------------------------------------------------------------- */

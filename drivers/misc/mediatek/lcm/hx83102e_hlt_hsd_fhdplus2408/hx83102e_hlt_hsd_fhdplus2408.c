@@ -30,6 +30,7 @@
 #endif
 
 #include <linux/pinctrl/consumer.h>
+#include <linux/touchscreen_info.h>
 /*TabA7 Lite code for OT8-4085 by weiqiang at 20210319 start*/
 #include <linux/regulator/consumer.h>
 /*TabA7 Lite code for OT8-4085 by weiqiang at 20210319 end*/
@@ -80,6 +81,9 @@ extern struct pinctrl_state *lcd_disp_pwm;
 extern struct pinctrl_state *lcd_disp_pwm_gpio;
 
 extern void himax_resume_by_ddi(void);
+
+extern bool g_system_is_shutdown;
+extern int mtk_tpd_smart_wakeup_support(void);
 
 /* ----------------------------------------------------------------- */
 /*  Local Variables */
@@ -373,18 +377,18 @@ static void lcm_init(void)
 	pr_notice("[Kernel/LCM] %s exit\n", __func__);
 }
 
-extern int mtk_tpd_smart_wakeup_support(void);
+
 
 static void lcm_suspend(void)
 {
 	pr_notice("%s [Kernel/LCM] %s enter\n", LCM_NAME, __func__);
-
 	if (!mtk_tpd_smart_wakeup_support()) {
 		push_table(NULL,
 			lcm_normal_suspend_setting,
 			sizeof(lcm_normal_suspend_setting) / sizeof(struct LCM_setting_table),
 			1);
 	} else {
+
 		push_table(NULL,
 			lcm_aot_suspend_setting,
 			sizeof(lcm_aot_suspend_setting) / sizeof(struct LCM_setting_table),

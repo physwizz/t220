@@ -12,9 +12,7 @@
  * GNU General Public License for more details.
  *
  */
-/*TabA7 Lite code for OT8-106 add afc charger driver by wenyaqi at 20201210 start*/
-/*TabA7 Lite code for P201230-05004 optimize afc driver by wenyaqi at 20210222 start*/
-/*TabA7 Lite code for OT8-1354 optimize afc driver to avoid irq too long by wenyaqi at 20210207 start*/
+/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -43,6 +41,17 @@
 
 extern int charger_dev_set_mivr(struct charger_device *chg_dev, u32 uV);
 int afc_set_ta_vchr(struct mtk_charger *pinfo, u32 chr_volt);
+/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 start*/
+#define NDELAY_BASE_NS			10000
+#define NDELAY_BASE_US_TUNE		9000
+#define AFC_DELAY_BASED_NDELAY(ui)					\
+	{													\
+	    int k = 0;											\
+	    for (k = 0; k < (ui) / NDELAY_BASE_NS; k++) {		\
+		    ndelay(NDELAY_BASE_US_TUNE);				\
+	    }													\
+	}
+/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 start*/
 
 int send_afc_result(int res)
 {
@@ -115,9 +124,11 @@ void cycle(struct afc_dev *afc, int ui)
 		afc->pin_state = true;
 	}
 	gpio_direction_output(afc->afc_data_gpio, 1);
-	udelay(ui);
+	/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 start*/
+	AFC_DELAY_BASED_NDELAY(ui * 1000);
 	gpio_direction_output(afc->afc_data_gpio, 0);
-	udelay(ui);
+	AFC_DELAY_BASED_NDELAY(ui * 1000);
+	/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 end*/
 }
 
 void afc_send_Mping(struct afc_dev *afc)
@@ -128,7 +139,9 @@ void afc_send_Mping(struct afc_dev *afc)
 	}
 
 	gpio_direction_output(afc->afc_data_gpio, 1);
-	udelay(16*UI);
+	/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 start*/
+	AFC_DELAY_BASED_NDELAY(16*UI * 1000);
+	/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 end*/
 	gpio_direction_output(afc->afc_data_gpio, 0);
 }
 
@@ -143,7 +156,8 @@ int afc_recv_Sping(struct afc_dev *afc)
 	gpio_direction_input(afc->afc_data_gpio);
 	while (1)
 	{
-		udelay(UI);
+		/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 start*/
+		AFC_DELAY_BASED_NDELAY(UI * 1000);
 		if (gpio_get_value(afc->afc_data_gpio)) {
 			pr_debug("%s: wait rsp %d\n", __func__, i);
 			break;
@@ -160,7 +174,8 @@ int afc_recv_Sping(struct afc_dev *afc)
 			goto Sping_err;
 		}
 
-		udelay(UI);
+		AFC_DELAY_BASED_NDELAY(UI * 1000);
+		/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 end*/
 	} while (gpio_get_value(afc->afc_data_gpio));
 
 	if (sp_cnt < SPING_MIN_UI) {
@@ -192,7 +207,9 @@ int afc_send_parity_bit(struct afc_dev *afc, int data)
 	else
 		gpio_direction_output(afc->afc_data_gpio, 0);
 
-	udelay(UI);
+	/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 start*/
+	AFC_DELAY_BASED_NDELAY(UI * 1000);
+	/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 end*/
 
 	return odd;
 }
@@ -206,28 +223,30 @@ void afc_send_data(struct afc_dev *afc, int data)
 		afc->pin_state = true;
 	}
 
-	udelay(160);
+	/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 start*/
+	AFC_DELAY_BASED_NDELAY(UI * 1000);
 
 	if (data & 0x80)
 		cycle(afc, UI/4);
 	else {
 		cycle(afc, UI/4);
 		gpio_direction_output(afc->afc_data_gpio, 1);
-		udelay(UI/4);
+		AFC_DELAY_BASED_NDELAY((UI/4)* 1000);
 	}
 
 	for (i = 0x80; i > 0; i = i >> 1)
 	{
 		gpio_direction_output(afc->afc_data_gpio, data & i);
-		udelay(UI);
+		AFC_DELAY_BASED_NDELAY(UI * 1000);
 	}
 
 	if (afc_send_parity_bit(afc, data)) {
 		gpio_direction_output(afc->afc_data_gpio, 0);
-		udelay(UI/4);
+		AFC_DELAY_BASED_NDELAY((UI/4)* 1000);
 		cycle(afc, UI/4);
 	} else {
-		udelay(UI/4);
+		AFC_DELAY_BASED_NDELAY((UI/4)* 1000);
+		/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 end*/
 		cycle(afc, UI/4);
 	}
 }
@@ -283,7 +302,9 @@ int afc_communication(struct afc_dev *afc)
 	if (ret < 0)
 		goto afc_fail;
 
-	udelay(200);
+	/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 start*/
+	AFC_DELAY_BASED_NDELAY(200 * 1000);
+	/*TabA7 Lite code for P210524-04905 by wenyaqi at 20210603 end*/
 	afc_send_Mping(afc);
 
 	ret = afc_recv_Sping(afc);
@@ -648,7 +669,6 @@ int afc_pre_check(struct mtk_charger *pinfo)
 	int chr_type;
 	struct afc_dev *afc_device = &pinfo->afc;
 
-	/*TabA7 Lite code for OT8-656 by wenyaqi at 20210105 start*/
 	chr_type = get_charger_type(pinfo);
 	if (!afc_device->to_check_chr_type ||
 		chr_type != POWER_SUPPLY_TYPE_USB_DCP) {
@@ -665,7 +685,28 @@ int afc_pre_check(struct mtk_charger *pinfo)
 	charger_dev_set_input_current(pinfo->chg1_dev,
 		pinfo->data.afc_pre_input_current);
 	msleep(1500);
-	/*TabA7 Lite code for OT8-656 by wenyaqi at 20210105 end*/
+
+	return 0;
+}
+
+/*
+* afc_later_check
+*
+* The function will be executed when retry afc.
+*/
+int afc_later_check(struct mtk_charger *pinfo)
+{
+	if(pinfo->afc_sts < AFC_5V && pinfo->afc.afc_retry_flag == true &&
+		pinfo->afc.afc_loop_algo < ALGO_LOOP_MAX) {
+		chr_err("afc failed %d times,try again\n", pinfo->afc.afc_loop_algo++);
+		pinfo->afc.to_check_chr_type = true;
+		pinfo->afc.is_connect = true;
+	}
+	if(pinfo->afc_sts > AFC_5V && get_vbus(pinfo) < 8000) {
+		chr_err("vbus droped,try afc again\n");
+		pinfo->afc.to_check_chr_type = true;
+		pinfo->afc.is_connect = true;
+	}
 
 	return 0;
 }
@@ -678,7 +719,7 @@ int afc_check_charger(struct mtk_charger *pinfo)
 
 	pr_debug("%s: Start\n", __func__);
 
-	if (!pinfo->enable_hv_charging) {
+	if (!pinfo->enable_hv_charging || pinfo->hv_disable == HV_DISABLE) {
 		pr_err("%s: hv charging is disabled\n", __func__);
 		if (afc_device->is_connect) {
 			afc_leave(pinfo);
@@ -735,6 +776,7 @@ The AICR will be configured right siut value in CC step */
 	if (!IS_ERR_OR_NULL(psy)) {
 		power_supply_changed(psy);
 	}
+	afc_later_check(pinfo);
 	pr_info("%s End\n", __func__);
 	return 0;
 out:
@@ -747,6 +789,7 @@ out:
 	}
 	afc_enable_vbus_ovp(pinfo, true);
 	charger_dev_set_input_current(pinfo->chg1_dev, pinfo->data.ac_charger_input_current);
+	afc_later_check(pinfo);
 	pr_info("%s:not detect afc\n",__func__);
 	return 0;
 }
@@ -798,7 +841,6 @@ int afc_set_ta_vchr(struct mtk_charger *pinfo, u32 chr_volt)
 		 * It is successful if VBUS difference to target is
 		 * less than 1000mV.
 		 */
-		/*TabA7 Lite code for OT8-602 optimize afc by wenyaqi at 20210105 start*/
 		if (ret == 0 && vchr_delta < 1000000) {
 			pr_err("%s: OK, vchr = (%d, %d), vchr_target = %dmV\n",
 				__func__, vchr_before / 1000, vchr_after / 1000,
@@ -817,13 +859,12 @@ int afc_set_ta_vchr(struct mtk_charger *pinfo, u32 chr_volt)
 			vchr_after / 1000, chr_volt / 1000);
 	} while ( get_charger_type(pinfo) != POWER_SUPPLY_TYPE_UNKNOWN &&
 		 retry_cnt < retry_cnt_max && pinfo->enable_hv_charging &&
-		 cancel_afc(pinfo) != true);
+		 cancel_afc(pinfo) != true && pinfo->hv_disable == HV_ENABLE);
 
 	ret = -EIO;
 	pr_err("%s: failed, vchr_after = %dmV, target_vchr = %dmV\n",
 		__func__, vchr_after / 1000, chr_volt / 1000);
 	send_afc_result(AFC_FAIL);
-	/*TabA7 Lite code for OT8-602 optimize afc by wenyaqi at 20210105 start*/
 	return ret;
 
 send_result:
@@ -892,7 +933,7 @@ int afc_start_algorithm(struct mtk_charger *pinfo)
 	int vbat = 0;
 	struct afc_dev *afc_device = &pinfo->afc;
 
-	if (!pinfo->enable_hv_charging) {
+	if (!pinfo->enable_hv_charging || pinfo->hv_disable == HV_DISABLE) {
 		ret = -EPERM;
 		pr_err("%s: hv charging is disabled\n", __func__);
 		if (afc_device->is_connect) {
@@ -1231,6 +1272,4 @@ int afc_charge_init(struct mtk_charger *pinfo)
 	return 0;
 
 }
-/*TabA7 Lite code for OT8-1354 optimize afc driver to avoid irq too long by wenyaqi at 20210207 end*/
-/*TabA7 Lite code for P201230-05004 optimize afc driver by wenyaqi at 20210222 end*/
-/*TabA7 Lite code for OT8-106 add afc charger driver by wenyaqi at 20201210 end*/
+/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/

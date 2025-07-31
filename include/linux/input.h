@@ -185,11 +185,11 @@ struct input_dev {
 
 	unsigned int users;
 	bool going_away;
-/*TabA7 Lite code for SR-AX3565-01-138 by zhaoxiangxiang at 20201203 start*/
+
 	unsigned int users_private;
 	bool disabled;
 	bool lowpower_mode;
-/*TabA7 Lite code for SR-AX3565-01-138 by zhaoxiangxiang at 20201203 end*/
+
 	struct device dev;
 
 	struct list_head	h_list;

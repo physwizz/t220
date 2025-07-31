@@ -227,18 +227,10 @@ source "drivers/interconnect/Kconfig"
 
 source "drivers/energy_model/Kconfig"
 
-source "drivers/muic/Kconfig"
-
 source "drivers/switch/Kconfig"
 
 source "drivers/samsung/Kconfig"
 
 source "drivers/battery/Kconfig"
-
-source "drivers/security/samsung/five_tee_driver/Kconfig"
-
-source "drivers/security/samsung/icdrv/Kconfig"
-
-source "drivers/security/samsung/tzic/Kconfig"
 
 endmenu

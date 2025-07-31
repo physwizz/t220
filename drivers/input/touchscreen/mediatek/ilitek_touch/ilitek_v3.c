@@ -21,6 +21,7 @@
  */
 #include "firmware/ilitek_v3_fw.h"
 #include "ilitek_v3.h"
+#include "tpd.h"
 
 /* Debug level */
 bool debug_en = DEBUG_OUTPUT;
@@ -602,6 +603,14 @@ int ili_fw_upgrade_handler(void *data)
 		ili_input_register();
 		ili_wq_ctrl(WQ_ESD, ENABLE);
 		ili_wq_ctrl(WQ_BAT, ENABLE);
+/*Tab A7 lite_U code for SR-AX3565AU-21  by zhengkunbang at 20230810 start*/
+#if defined CONFIG_HQ_PROJECT_HS03S || defined CONFIG_HQ_PROJECT_OT8
+			ret = sysfs_create_link(&ilits->sec_info->sec.fac_dev->kobj, &tpd->dev->dev.kobj, "input");
+			if (ret < 0) {
+				ILI_ERR("%s: Failed to sysfs_create_link,ret is %d", __func__, ret);
+			}
+/*Tab A7 lite_U code for SR-AX3565AU-21  by zhengkunbang at 20230810 end*/
+#endif
 	}
 
 	atomic_set(&ilits->fw_stat, END);
@@ -845,6 +854,21 @@ int ili_report_handler(void)
 
 	ili_dump_data(ilits->tr_buf, 8, rlen, 0, "finger report");
 
+
+
+#ifdef CONFIG_HQ_PROJECT_HS03S
+/*hs03s  code for DEVAL5625-1101 by wangdeyan at 20210609 start*/
+	if (ilits->tr_buf[0] == P5_X_GESTURE_PACKET_ID) {
+			if (ilits->rib.nReportResolutionMode == POSITION_LOW_RESOLUTION) {
+					rlen = P5_X_GESTURE_INFO_LENGTH;
+			}
+			else {
+					rlen = P5_X_GESTURE_INFO_LENGTH_HIGH_RESOLUTION;
+			}
+	}
+/*hs03s  code for DEVAL5625-1101 by wangdeyan at 20210609 end*/
+
+#endif
 	checksum = ili_calc_packet_checksum(ilits->tr_buf, rlen - 1);
 	pack_checksum = ilits->tr_buf[rlen-1];
 	trdata = ilits->tr_buf;
@@ -867,7 +891,17 @@ int ili_report_handler(void)
 
 	switch (pid) {
 	case P5_X_DEMO_PACKET_ID:
-		ili_report_ap_mode(trdata, rlen);
+	
+#ifdef CONFIG_HQ_PROJECT_OT8
+    		/* modify code for OT8 */
+			ili_report_ap_mode(trdata, rlen);
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    		/* modify code for O6 */
+			if (tpd->tp_is_enabled){
+			ili_report_ap_mode(trdata, rlen);
+		}
+#endif
 		break;
 	case P5_X_DEBUG_PACKET_ID:
 		ili_report_debug_mode(trdata, rlen);
@@ -984,12 +1018,27 @@ int ili_reset_ctrl(int mode)
 
 static int ilitek_get_tp_module(void)
 {
+#ifdef CONFIG_HQ_PROJECT_OT8
+		return MODEL_LS_INX;
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS03S
+	const char *panel_name = saved_command_line;
+	int fw_num = 0;
+
+	ILI_INFO("cmdline:%s\n", panel_name);
+
+	if (NULL != strstr(panel_name, "ili9882h_liansi_panda_dsi_vdo")){
+		fw_num = MODEL_LS_PANDA;
+	} else  if (NULL != strstr(panel_name, "ili7806s_hdplus1600_dsi_vdo_txd_boe_9mask")){
+		fw_num = MODEL_TXD_BOE;
+	}
+		else fw_num = MODEL_TXD_BOE;
 	/*
 	 * TODO: users should implement this function
 	 * if there are various tp modules been used in projects.
 	 */
-
-	return MODEL_LS_INX;
+	return fw_num;
+#endif
 }
 
 static void ili_update_tp_module_info(void)
@@ -1061,6 +1110,24 @@ static void ili_update_tp_module_info(void)
 		ilits->md_ini_rq_path = TM_INI_REQUEST_PATH;
 		ilits->md_fw_ili = CTPM_FW_TM;
 		ilits->md_fw_ili_size = sizeof(CTPM_FW_TM);
+		break;
+	case MODEL_TXD_BOE:
+		ilits->md_name = "TXD_BOE_ILI7806S";
+		ilits->md_fw_filp_path = TXD_BOE_FW_FILP_PATH;
+		ilits->md_fw_rq_path = TXD_BOE_FW_REQUEST_PATH;
+		ilits->md_ini_path = TXD_BOE_INI_NAME_PATH;
+		ilits->md_ini_rq_path = TXD_BOE_INI_REQUEST_PATH;
+		ilits->md_fw_ili = CTPM_FW_TXD_BOE;
+		ilits->md_fw_ili_size = sizeof(CTPM_FW_TXD_BOE);
+		break;
+	case MODEL_LS_PANDA:
+		ilits->md_name = "LS_PANDA_ILI9882H";
+		ilits->md_fw_filp_path = LS_PANDA_FW_FILP_PATH;
+		ilits->md_fw_rq_path = LS_PANDA_FW_REQUEST_PATH;
+		ilits->md_ini_path = LS_PANDA_INI_NAME_PATH;
+		ilits->md_ini_rq_path = LS_PANDA_INI_REQUEST_PATH;
+		ilits->md_fw_ili = CTPM_FW_LS_PANDA;
+		ilits->md_fw_ili_size = sizeof(CTPM_FW_LS_PANDA);
 		break;
 	case MODEL_LS_INX:
 		ilits->md_name = "LS_INX_ILI9881T";

@@ -93,7 +93,7 @@ static u16 gc02m1_otp_read_group(u16 addr, u8 *data, u16 length)
 		write_cmos_sensor(0xf3, 0x34);
 		data[i] = read_cmos_sensor(0x19);
 #if GC02M1_CXT_OTP_DEBUG
-	pr_debug("gc02m1_cxt addr = 0x%x, data = 0x%x\n", (0x78 + (i * 8)), data[i]);
+	pr_info("gc02m1_cxt addr = 0x%x, data = 0x%x\n", (0x78 + (i * 8)), data[i]);
 #endif
 	}
 	return 0;

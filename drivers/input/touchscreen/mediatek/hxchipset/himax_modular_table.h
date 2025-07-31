@@ -26,9 +26,7 @@ enum modular_table {
 	MODULE_EMPTY,
 };
 
-#if defined(HX_USE_KSYM)
-#define DECLARE(sym) struct himax_chip_entry sym; \
-			EXPORT_SYMBOL(sym)
+
 static const char * const himax_ksym_lookup[] = {
 	#if defined(HX_MOD_KSYM_HX852xG)
 	TO_STR(HX_MOD_KSYM_HX852xG),
@@ -41,6 +39,9 @@ static const char * const himax_ksym_lookup[] = {
 	#endif
 	#if defined(HX_MOD_KSYM_HX83102)
 	TO_STR(HX_MOD_KSYM_HX83102),
+	#endif
+	#if defined(HX_MOD_KSYM_HX83121)
+	TO_STR(HX_MOD_KSYM_HX83121),
 	#endif
 	#if defined(HX_MOD_KSYM_HX83103)
 	TO_STR(HX_MOD_KSYM_HX83103),
@@ -66,9 +67,25 @@ static const char * const himax_ksym_lookup[] = {
 	NULL
 };
 
-static struct himax_chip_entry *get_chip_entry_by_index(int32_t idx)
+
+#if defined(HX_USE_KSYM)
+extern void hx_release_chip_entry(void);
+extern struct himax_chip_entry *hx_self_sym_lookup;
+
+struct himax_chip_entry *get_chip_entry_by_index(int32_t idx)
 {
-	return  (void *)kallsyms_lookup_name(himax_ksym_lookup[idx]);
+	if (hx_self_sym_lookup == NULL) {
+		hx_self_sym_lookup =
+			kzalloc(sizeof(struct himax_chip_entry), GFP_KERNEL);
+		hx_self_sym_lookup->hx_ic_dt_num =
+			sizeof(himax_ksym_lookup) / sizeof(char *);
+		hx_self_sym_lookup->core_chip_dt =
+			kzalloc(sizeof(struct himax_chip_detect) *
+			hx_self_sym_lookup->hx_ic_dt_num,
+			GFP_KERNEL);
+
+	}
+	return hx_self_sym_lookup;
 }
 
 /*
@@ -91,7 +108,7 @@ static int32_t isEmpty(int32_t idx)
 
 /*
  * Search for created entry, if not existed, return 1st
- * Return index of himax_ksym_lookup
+ * Return index of hx_self_sym_lookup
  */
 static int32_t himax_get_ksym_idx(void)
 {
@@ -120,12 +137,12 @@ static int32_t himax_get_ksym_idx(void)
 }
 
 #else
-#define DECLARE(sym)
-extern struct himax_chip_entry himax_ksym_lookup;
+
+extern struct himax_chip_entry hx_self_sym_lookup;
 
 static struct himax_chip_entry *get_chip_entry_by_index(int32_t idx)
 {
-	return  &himax_ksym_lookup;
+	return  &hx_self_sym_lookup;
 }
 
 static int32_t isEmpty(int32_t idx)
@@ -146,12 +163,10 @@ static int32_t himax_get_ksym_idx(void)
 {
 	int32_t size;
 
-	size = himax_ksym_lookup.hx_ic_dt_num;
+	size = hx_self_sym_lookup.hx_ic_dt_num;
 
 	I("%s: symtable size: %d\n", __func__, size);
 	return 0;
 }
-
 #endif
-
 #endif

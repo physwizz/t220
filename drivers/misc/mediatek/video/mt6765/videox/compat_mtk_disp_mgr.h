@@ -85,7 +85,9 @@ struct compat_disp_ccorr_config {
 	bool is_dirty;
 	compat_int_t mode;
 	compat_int_t color_matrix[16];
+	bool feature_flag;
 };
+
 struct compat_disp_output_config {
 	compat_uptr_t va;
 	compat_uptr_t pa;
@@ -201,6 +203,8 @@ struct compat_disp_frame_cfg_t {
 
 	/* for panel HBM (High Backlight Mode) control */
 	bool hbm_en;
+	/*DynFPS*/
+	compat_int_t active_config;
 };
 
 struct compat_disp_session_info {
@@ -261,6 +265,7 @@ struct compat_disp_layer_info {
 	compat_int_t res_idx;
 	compat_uint_t hrt_weight;
 	compat_uint_t hrt_idx;
+	compat_int_t active_config_id[2];
 };
 
 struct _compat_disp_layer_info {
@@ -275,9 +280,7 @@ struct _compat_disp_layer_info {
 	compat_int_t res_idx;
 	compat_uint_t hrt_weight;
 	compat_uint_t hrt_idx;
-
-	/*DynFPS*/
-	int active_config_id[2];
+	compat_int_t active_config_id[2];
 };
 
 struct compat_disp_scenario_config_t {

@@ -15,18 +15,17 @@
 
 #include <linux/spi/spi.h>
 #include <linux/spi/spidev.h>
+#include <linux/proc_fs.h>
+#include "himax_ic_core.h"
+#include <linux/power_supply.h>
+#include <linux/touchscreen_info.h>
 
 #include "himax_platform.h"
 #include "himax_common.h"
-#include "himax_ic_core.h"
-/*TabA7 Lite code for SR-AX3565-01-45 by gaozhengwei at 20201229 start*/
-#include <linux/touchscreen_info.h>
-
-extern enum tp_module_used tp_is_used;
-/*TabA7 Lite code for SR-AX3565-01-45 by gaozhengwei at 20201229 end*/
 
 int i2c_error_count;
 bool ic_boot_done;
+extern enum tp_module_used tp_is_used;
 
 const struct of_device_id himax_match_table[] = {
 	{.compatible = "mediatek,himax_spi_touch" },
@@ -42,8 +41,8 @@ static uint8_t *gBuffer;
 
 /* Custom set some config */
 /* [1]=X resolution, [3]=Y resolution */
-static int hx_panel_coords[4] = {0, 800, 0, 1340};
-static int hx_display_coords[4] = {0, 800, 0, 1340};
+static int hx_panel_coords[4] = {0, 720, 0, 1600};
+static int hx_display_coords[4] = {0, 720, 0, 1600};
 static int report_type = PROTOCOL_TYPE_B;
 struct device *g_device;
 
@@ -111,20 +110,20 @@ int himax_dev_set(struct himax_ts_data *ts)
 
 	ts->input_dev->name = "himax-touchscreen";
 
-	if (!ic_data->HX_PEN_FUNC)
-		goto skip_pen_operation;
+	if (!ic_data->HX_STYLUS_FUNC)
+		goto skip_stylus_operation;
 
-	ts->hx_pen_dev = input_allocate_device();
+	ts->stylus_dev = input_allocate_device();
 
-	if (ts->hx_pen_dev == NULL) {
+	if (ts->stylus_dev == NULL) {
 		ret = -ENOMEM;
-		E("%s: Failed to allocate input device-hx_pen_dev\n", __func__);
+		E("%s: Failed to allocate input device-stylus_dev\n", __func__);
 		input_free_device(ts->input_dev);
 		return ret;
 	}
 
-	ts->hx_pen_dev->name = "himax-pen";
-skip_pen_operation:
+	ts->stylus_dev->name = "himax-stylus";
+skip_stylus_operation:
 
 	return ret;
 }
@@ -249,6 +248,7 @@ static int himax_spi_read(uint8_t *command, uint8_t command_len,
 	struct spi_transfer xfer[2];
 	int retry = 0;
 	int error = -1;
+
 	spi_message_init(&message);
 	memset(xfer, 0, sizeof(xfer));
 
@@ -284,6 +284,7 @@ static int himax_spi_write(uint8_t *buf, uint32_t length)
 			.len		= length,
 	};
 	struct spi_message	m;
+
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
 
@@ -328,10 +329,6 @@ int himax_bus_write(uint8_t command, uint8_t *data,
 	return result;
 }
 
-int himax_bus_write_command(uint8_t command, uint8_t toRetry)
-{
-	return himax_bus_write(command, NULL, 0, toRetry);
-}
 
 uint8_t himax_int_gpio_read(int pinnum)
 {
@@ -350,15 +347,12 @@ void himax_int_enable(int enable)
 		atomic_set(&ts->irq_state, 1);
 		enable_irq(irqnum);
 		private_ts->irq_enabled = 1;
-		I("irq_enable:enable = %d,irq_enabled=%d\n",enable,ts->irq_enabled);
 	} else if (enable == 0 && atomic_read(&ts->irq_state) == 1) {
 		atomic_set(&ts->irq_state, 0);
 		disable_irq_nosync(irqnum);
 		private_ts->irq_enabled = 0;
-		I("irq_disable:enable = %d,irq_enabled=%d\n",enable,ts->irq_enabled);
-	}else{
-		I("fault mode:enable = %d,irq_enabled=%d\n",enable,ts->irq_enabled);
 	}
+	I("enable = %d\n", enable);
 	spin_unlock_irqrestore(&ts->irq_lock, irqflags);
 }
 
@@ -547,7 +541,6 @@ int himax_ts_unregister_interrupt(void)
 	return ret;
 }
 
-#include <linux/proc_fs.h>
 #define HWINFO_NAME             "tp_wake_switch"
 static struct platform_device hwinfo_device= {
         .name = HWINFO_NAME,
@@ -619,6 +612,9 @@ static int hx_test_node_init(struct platform_device *tpinfo_device)
 extern struct sec_cmd himax_commands[];
 extern int himax_get_array_size(void);
 
+struct pinctrl *himax_spi_pinctrl;
+struct pinctrl_state *spi_all;
+
 static int himax_common_probe_spi(struct spi_device *spi)
 {
 	struct himax_ts_data *ts = NULL;
@@ -626,14 +622,23 @@ static int himax_common_probe_spi(struct spi_device *spi)
 	/* Allocate driver data */
 	I("%s:IN!\n", __func__);
 
-	/*TabA7 Lite code for SR-AX3565-01-45 by gaozhengwei at 20201229 start*/
-	if(tp_is_used != UNKNOWN_TP) {
-        I("it si not himax tp\n");
-        return -ENOMEM;
-    }
-	/*TabA7 Lite code for SR-AX3565-01-45 by gaozhengwei at 20201229 end*/
+	// himax_spi_pinctrl = devm_pinctrl_get(&(spi->dev));
+	// if (IS_ERR(himax_spi_pinctrl)) {
+	// 	ret = PTR_ERR(himax_spi_pinctrl);
+	// 	E("Cannot find touch spi pinctrl!\n");
+	// }
+	// spi_all = pinctrl_lookup_state(himax_spi_pinctrl, "state_spi_all");
 
-	gBuffer = kzalloc(sizeof(uint8_t) * (HX_MAX_WRITE_SZ+2), GFP_KERNEL);
+	// if (IS_ERR(spi_all)) {
+	// 	ret = PTR_ERR(spi_all);
+	// 	E("Cannot find state_spi_all %d!\n", ret);
+	// } else {
+	// 	ret = pinctrl_select_state(himax_spi_pinctrl, spi_all);
+	// 	I("%s: state_spi_all select ret = %d\n", __func__, ret);
+	// }
+
+	/* command[2] + address[4] + data[] */
+	gBuffer = kzalloc(sizeof(uint8_t) * (HX_MAX_WRITE_SZ+6), GFP_KERNEL);
 	if (gBuffer == NULL) {
 		E("%s: allocate gBuffer failed\n", __func__);
 		ret = -ENOMEM;
@@ -680,10 +685,8 @@ static int himax_common_probe_spi(struct spi_device *spi)
         {
                 E("create enable node fail\n");
         }
+	tp_is_used = HIMAX;
 
-	/*TabA7 Lite code for SR-AX3565-01-45 by gaozhengwei at 20201229 start*/
-	tp_is_used = Himax;
-	/*TabA7 Lite code for SR-AX3565-01-45 by gaozhengwei at 20201229 end*/
 	return ret;
 
 err_common_init_failed:
@@ -714,29 +717,26 @@ static void himax_common_suspend(struct device *dev)
 	struct himax_ts_data *ts = private_ts;
 
 	I("%s: enter\n", __func__);
-	/*TabA7 Lite code for P210204-06765 by gaozhengwei at 20210215 start*/
-	mutex_lock(&ts->fw_update_lock);
+	if (!ts){
+		E("private_ts is NULL\n");
+		return;
+	}
 	himax_chip_common_suspend(ts);
-	mutex_unlock(&ts->fw_update_lock);
-	/*TabA7 Lite code for P210204-06765 by gaozhengwei at 20210215 end*/
 	I("%s: END\n", __func__);
 }
 
 static void himax_common_resume(struct device *dev)
 {
-/*TabA7 Lite code for P210204-06765 by gaozhengwei at 20210215 start*/
-#if defined(HX_CONTAINER_SPEED_UP) || defined(HX_RESUME_BY_DDI)
-	return;
-#else
 	struct himax_ts_data *ts = private_ts;
 
 	I("%s: enter\n", __func__);
-	mutex_lock(&ts->fw_update_lock);
+	if (!ts){
+		E("private_ts is NULL\n");
+		return;
+	}
+	
 	himax_chip_common_resume(ts);
-	mutex_unlock(&ts->fw_update_lock);
 	I("%s: END\n", __func__);
-#endif
-/*TabA7 Lite code for P210204-06765 by gaozhengwei at 20210215 end*/
 }
 
 
@@ -766,14 +766,12 @@ int fb_notifier_callback(struct notifier_block *self,
 
 		switch (*blank) {
 		case FB_BLANK_UNBLANK:
-#if !defined(HX_RESUME_BY_DDI)
 #if defined(HX_CONTAINER_SPEED_UP)
 			queue_delayed_work(ts->ts_int_workqueue,
 				&ts->ts_int_work,
 				msecs_to_jiffies(DELAY_TIME));
 #else
 			himax_common_resume(ts->dev);
-#endif
 #endif
 			break;
 
@@ -802,7 +800,9 @@ struct spi_driver himax_common_driver = {
 		.name = HIMAX_common_NAME,
 		.bus = &spi_bus_type,
 		.owner = THIS_MODULE,
+#if defined(CONFIG_OF)
 		.of_match_table = himax_match_table,
+#endif
 	},
 	.probe = himax_common_probe_spi,
 	.remove = himax_common_remove_spi,
@@ -814,6 +814,10 @@ static int himax_common_local_init(void)
 	int retval;
 
 	I("[Himax] Himax_ts SPI Touchscreen Driver local init\n");
+	if(tp_is_used != UNKNOWN_TP) {
+        E("it is not himax tp\n");
+        return -ENOMEM;
+    }
 
 	(*kp_tpd)->reg = regulator_get((*kp_tpd)->tpd_dev, "vtouch");
 	retval = regulator_set_voltage((*kp_tpd)->reg, 2800000, 2800000);

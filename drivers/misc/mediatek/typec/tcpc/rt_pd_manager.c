@@ -14,6 +14,11 @@
 #include "inc/tcpci_typec.h"
 #ifdef CONFIG_MTK_CHARGER
 #include <charger_class.h>
+#ifdef ADAPT_CHARGER_V1
+#include <mt-plat/v1/mtk_charger.h>
+#else
+#include <mtk_charger.h>
+#endif
 #endif /* CONFIG_MTK_CHARGER */
 #ifdef CONFIG_WATER_DETECTION
 #include <mt-plat/mtk_boot.h>
@@ -21,10 +26,16 @@
 
 #define RT_PD_MANAGER_VERSION	"1.0.8_MTK"
 
+#ifdef CONFIG_OCP96011_I2C
+#include "../switch/ocp96011-i2c.h"
+extern void typec_headset_queue_work(void);
+#endif
+
 struct rt_pd_manager_data {
 	struct device *dev;
 #ifdef CONFIG_MTK_CHARGER
 	struct charger_device *chg_dev;
+	struct charger_consumer *chg_consumer;
 #ifdef CONFIG_WATER_DETECTION
 	struct power_supply *chg_psy;
 #endif /* CONFIG_WATER_DETECTION */
@@ -51,10 +62,10 @@ void __attribute__((weak)) usb_dpdm_pulldown(bool enable)
 	pr_notice("%s is not defined\n", __func__);
 }
 
-/*TabA7 Lite code for OT8-4584 by wenyaqi at 20210413 start*/
 #define V_CHARGER_MIN 4600000 /* 4.6 V */
 #define V_CHARGER_MIN_1 4400000 /* 4.4 V */
 #define V_CHARGER_MIN_2 4200000 /* 4.2 V */
+#ifndef ADAPT_CHARGER_V1
 static void set_dynamic_mivr(struct rt_pd_manager_data *rpmd)
 {
 	int ret = 0;
@@ -75,12 +86,13 @@ static void set_dynamic_mivr(struct rt_pd_manager_data *rpmd)
 			charger_dev_set_mivr(rpmd->chg_dev, V_CHARGER_MIN);
 	}
 }
-
-/*TabA7 Lite code for SR-AX3565-01-18 by shixuanxuan at 2020/11/28 start*/
+#endif
+/* HS03s code for SR-AL5625-01-52 by wenyaqi at 20210419 start */
 int usb_cc_flag = 0;
 EXPORT_SYMBOL(usb_cc_flag);
-/*TabA7 Lite code for SR-AX3565-01-18 by shixuanxuan at 2020/11/28 end*/
+/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 start */
 extern int ss_charger_status;
+extern bool pd_hub_flag;
 static int pd_tcp_notifier_call(struct notifier_block *nb,
 				unsigned long event, void *data)
 {
@@ -93,14 +105,16 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 	uint32_t partner_vdos[VDO_MAX_NR];
 #ifdef CONFIG_WATER_DETECTION
 #ifdef CONFIG_MTK_CHARGER
-	union power_supply_propval propval = {.intval = 0};
+#ifndef ADAPT_CHARGER_V1
+	union power_supply_propval val = {.intval = 0};
+#endif /* ADAPT_CHARGER_V */
 #endif /* CONFIG_MTK_CHARGER */
 #endif /* CONFIG_WATER_DETECTION */
 
 	switch (event) {
 	case TCP_NOTIFY_SINK_VBUS:
 		rpmd->sink_mv_new = noti->vbus_state.mv;
-		rpmd->sink_ma_new = noti->vbus_state.ma;
+		rpmd->sink_ma_new = 500;//noti->vbus_state.ma;
 		dev_info(rpmd->dev, "%s sink vbus %dmV %dmA type(0x%02X)\n",
 				    __func__, rpmd->sink_mv_new,
 				    rpmd->sink_ma_new, noti->vbus_state.type);
@@ -109,20 +123,25 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 		    (rpmd->sink_ma_new != rpmd->sink_ma_old)) {
 			rpmd->sink_mv_old = rpmd->sink_mv_new;
 			rpmd->sink_ma_old = rpmd->sink_ma_new;
+#ifdef ADAPT_CHARGER_V1
+			charger_manager_enable_power_path(
+				rpmd->chg_consumer, MAIN_CHARGER, true);
+#else
 			if (rpmd->sink_mv_new && rpmd->sink_ma_new) {
 				if (ss_charger_status != 1) {
 					charger_dev_enable_powerpath(rpmd->chg_dev,
-								true);
+							     true);
 					set_dynamic_mivr(rpmd);
-			} else
+				} else
 					dev_info(rpmd->dev, "%s ss_charger_status =%d\n",
 						__func__, ss_charger_status);
+/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 end */
 			} else {
 				charger_dev_enable_powerpath(rpmd->chg_dev,
-								false);
+							false);
 			}
+#endif /* ADAPT_CHARGER_V1 */
 		}
-/*TabA7 Lite code for OT8-4584 by wenyaqi at 20210413 end*/
 #endif /* CONFIG_MTK_CHARGER */
 		break;
 	case TCP_NOTIFY_TYPEC_STATE:
@@ -132,15 +151,18 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 		    (new_state == TYPEC_ATTACHED_SNK ||
 		     new_state == TYPEC_ATTACHED_NORP_SRC ||
 		     new_state == TYPEC_ATTACHED_CUSTOM_SRC ||
-		     new_state == TYPEC_ATTACHED_DBGACC_SNK)) {
+		     new_state == TYPEC_ATTACHED_DBGACC_SNK ||
+		     new_state == TYPEC_ATTACHED_WD_SNK)) {
+
 			dev_info(rpmd->dev,
 				 "%s Charger plug in, polarity = %d\n",
 				 __func__, noti->typec_state.polarity);
-			/* OT8 add for SR-AX3565-01-18 Add typec cc orientation by shixuanxuan at 2020/11/28 end */
+			/*
+			 * start charger type detection,
+			 * and enable device connection
+			 */
 			usb_cc_flag = (noti->typec_state.polarity ?
-				TYPEC_ORIENTATION_NORMAL : TYPEC_ORIENTATION_REVERSE);
-			/* start charger type detection,
-			 * and enable device connection */
+					TYPEC_ORIENTATION_NORMAL : TYPEC_ORIENTATION_REVERSE);
 			typec_set_data_role(rpmd->typec_port, TYPEC_DEVICE);
 			typec_set_pwr_role(rpmd->typec_port, TYPEC_SINK);
 			typec_set_pwr_opmode(rpmd->typec_port,
@@ -150,12 +172,15 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 		} else if ((old_state == TYPEC_ATTACHED_SNK ||
 			    old_state == TYPEC_ATTACHED_NORP_SRC ||
 			    old_state == TYPEC_ATTACHED_CUSTOM_SRC ||
-			    old_state == TYPEC_ATTACHED_DBGACC_SNK) &&
+			    old_state == TYPEC_ATTACHED_DBGACC_SNK ||
+			    old_state == TYPEC_ATTACHED_WD_SNK) &&
 			    new_state == TYPEC_UNATTACHED) {
 			dev_info(rpmd->dev, "%s Charger plug out\n", __func__);
 			usb_cc_flag = TYPEC_ORIENTATION_NONE;
-			/* report charger plug-out,
-			 * and disable device connection */
+			/*
+			 * report charger plug-out,
+			 * and disable device connection
+			 */
 		} else if (old_state == TYPEC_UNATTACHED &&
 			   (new_state == TYPEC_ATTACHED_SRC ||
 			    new_state == TYPEC_ATTACHED_DEBUG)) {
@@ -165,38 +190,46 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 			usb_cc_flag = (noti->typec_state.polarity ?
 				TYPEC_ORIENTATION_NORMAL : TYPEC_ORIENTATION_REVERSE);
 			/* enable host connection */
+
 			typec_set_data_role(rpmd->typec_port, TYPEC_HOST);
 			typec_set_pwr_role(rpmd->typec_port, TYPEC_SOURCE);
 			switch (noti->typec_state.local_rp_level) {
-			case TYPEC_CC_RP_3_0:
+			case TYPEC_RP_3_0:
 				opmode = TYPEC_PWR_MODE_3_0A;
 				break;
-			case TYPEC_CC_RP_1_5:
+			case TYPEC_RP_1_5:
 				opmode = TYPEC_PWR_MODE_1_5A;
 				break;
-			case TYPEC_CC_RP_DFT:
+			case TYPEC_RP_DFT:
 			default:
 				opmode = TYPEC_PWR_MODE_USB;
 				break;
 			}
 			typec_set_pwr_opmode(rpmd->typec_port, opmode);
 			typec_set_vconn_role(rpmd->typec_port, TYPEC_SOURCE);
-		} else if (old_state == TYPEC_ATTACHED_SRC &&
-			   new_state == TYPEC_UNATTACHED) {
+		} else if ((old_state == TYPEC_ATTACHED_SRC ||
+			    old_state == TYPEC_ATTACHED_DEBUG) &&
+			    new_state == TYPEC_UNATTACHED) {
 			dev_info(rpmd->dev, "%s OTG plug out\n", __func__);
-			usb_cc_flag = TYPEC_ORIENTATION_NONE;
 			/* disable host connection */
 		} else if (old_state == TYPEC_UNATTACHED &&
 			   new_state == TYPEC_ATTACHED_AUDIO) {
 			dev_info(rpmd->dev, "%s Audio plug in\n", __func__);
 			/* enable AudioAccessory connection */
+#ifdef CONFIG_OCP96011_I2C
+			ocp96011_switch_event(0);
+			typec_headset_queue_work();
+#endif
 		} else if (old_state == TYPEC_ATTACHED_AUDIO &&
 			   new_state == TYPEC_UNATTACHED) {
 			dev_info(rpmd->dev, "%s Audio plug out\n", __func__);
 			/* disable AudioAccessory connection */
+#ifdef CONFIG_OCP96011_I2C
+			ocp96011_switch_event(1);
+			typec_headset_queue_work();
+#endif
 		}
 		pr_info("%s:cc_flag=%d\n",__func__,usb_cc_flag);
-		/* OT8 add for SR-AX3565-01-18 Add typec cc orientation by shixuanxuan at 2020/11/28 end */
 
 		if (new_state == TYPEC_UNATTACHED) {
 			typec_unregister_partner(rpmd->partner);
@@ -242,6 +275,12 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 			}
 			rpmd->partner = typec_register_partner(rpmd->typec_port,
 					&rpmd->partner_desc);
+			if (IS_ERR(rpmd->partner)) {
+				ret = PTR_ERR(rpmd->partner);
+				dev_notice(rpmd->dev,
+				"%s typec register partner fail(%d)\n",
+					   __func__, ret);
+			}
 		}
 		break;
 	case TCP_NOTIFY_PR_SWAP:
@@ -250,8 +289,10 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 		if (noti->swap_state.new_role == PD_ROLE_SINK) {
 			dev_info(rpmd->dev, "%s swap power role to sink\n",
 					    __func__);
-			/* report charger plug-in without charger type detection
-			 * to not interfering with USB2.0 communication */
+			/*
+			 * report charger plug-in without charger type detection
+			 * to not interfering with USB2.0 communication
+			 */
 
 			typec_set_pwr_role(rpmd->typec_port, TYPEC_SINK);
 		} else if (noti->swap_state.new_role == PD_ROLE_SOURCE) {
@@ -268,15 +309,19 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 		if (noti->swap_state.new_role == PD_ROLE_UFP) {
 			dev_info(rpmd->dev, "%s swap data role to device\n",
 					    __func__);
-			/* disable host connection,
-			 * and enable device connection */
+			/*
+			 * disable host connection,
+			 * and enable device connection
+			 */
 
 			typec_set_data_role(rpmd->typec_port, TYPEC_DEVICE);
 		} else if (noti->swap_state.new_role == PD_ROLE_DFP) {
 			dev_info(rpmd->dev, "%s swap data role to host\n",
 					    __func__);
-			/* disable device connection,
-			 * and enable host connection */
+			/*
+			 * disable device connection,
+			 * and enable host connection
+			 */
 
 			typec_set_data_role(rpmd->typec_port, TYPEC_HOST);
 		}
@@ -299,6 +344,7 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 				    __func__, noti->en_state.en);
 #ifdef CONFIG_MTK_CHARGER
 		charger_dev_enable_discharge(rpmd->chg_dev, noti->en_state.en);
+
 #endif /* CONFIG_MTK_CHARGER */
 		break;
 	case TCP_NOTIFY_PD_STATE:
@@ -341,10 +387,15 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 			dev_info(rpmd->dev, "%s Water is detected in KPOC\n",
 					    __func__);
 #ifdef CONFIG_MTK_CHARGER
-			propval.intval = 0;
+#ifdef ADAPT_CHARGER_V1
+			charger_manager_enable_high_voltage_charging(
+					rpmd->chg_consumer, false);
+#else
+			val.intval = 0;
 			power_supply_set_property(rpmd->chg_psy,
 						  POWER_SUPPLY_PROP_VOLTAGE_MAX,
-						  &propval);
+						  &val);
+#endif /* ADAPT_CHARGER_V1 */
 #endif /* CONFIG_MTK_CHARGER */
 		} else {
 			usb_dpdm_pulldown(true);
@@ -353,10 +404,15 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 			dev_info(rpmd->dev, "%s Water is removed in KPOC\n",
 					    __func__);
 #ifdef CONFIG_MTK_CHARGER
-			propval.intval = 1;
+#ifdef ADAPT_CHARGER_V1
+			charger_manager_enable_high_voltage_charging(
+					rpmd->chg_consumer, true);
+#else
+			val.intval = 1;
 			power_supply_set_property(rpmd->chg_psy,
 						  POWER_SUPPLY_PROP_VOLTAGE_MAX,
-						  &propval);
+						  &val);
+#endif /* ADAPT_CHARGER_V1 */
 #endif /* CONFIG_MTK_CHARGER */
 		}
 		break;
@@ -393,7 +449,7 @@ static int tcpc_typec_try_role(const struct typec_capability *cap, int role)
 		return 0;
 	}
 
-	return tcpm_typec_change_role(rpmd->tcpc, typec_role);
+	return tcpm_typec_change_role_postpone(rpmd->tcpc, typec_role, true);
 }
 
 static int tcpc_typec_dr_set(const struct typec_capability *cap,
@@ -550,13 +606,12 @@ static int tcpc_typec_port_type_set(const struct typec_capability *cap,
 static int typec_init(struct rt_pd_manager_data *rpmd)
 {
 	int ret = 0;
-	uint8_t typec_role = tcpm_inquire_typec_role(rpmd->tcpc);
 
 	rpmd->typec_caps.type = TYPEC_PORT_DRP;
 	rpmd->typec_caps.data = TYPEC_PORT_DRD;
 	rpmd->typec_caps.revision = 0x0120;
 	rpmd->typec_caps.pd_revision = 0x0300;
-	switch (typec_role) {
+	switch (rpmd->tcpc->desc.role_def) {
 	case TYPEC_ROLE_SRC:
 	case TYPEC_ROLE_TRY_SRC:
 		rpmd->typec_caps.prefer_role = TYPEC_SOURCE;
@@ -608,7 +663,15 @@ static int rt_pd_manager_probe(struct platform_device *pdev)
 		ret = -ENODEV;
 		goto err_get_chg_dev;
 	}
-
+#ifdef ADAPT_CHARGER_V1
+	rpmd->chg_consumer = charger_manager_get_by_name(rpmd->dev,
+								 "charger_port1");
+	if (!rpmd->chg_consumer) {
+		dev_notice(rpmd->dev, "%s get chg consumer fail\n", __func__);
+		ret = -ENODEV;
+		goto err_get_chg_consumer;
+	}
+#else
 #ifdef CONFIG_WATER_DETECTION
 	rpmd->chg_psy = power_supply_get_by_name("mtk-master-charger");
 	if (!rpmd->chg_psy) {
@@ -617,10 +680,8 @@ static int rt_pd_manager_probe(struct platform_device *pdev)
 		goto err_get_chg_psy;
 	}
 #endif /* CONFIG_WATER_DETECTION */
+#endif /* ADAPT_CHARGER_V1 */
 #endif /* CONFIG_MTK_CHARGER */
-
-	rpmd->sink_mv_old = -1;
-	rpmd->sink_ma_old = -1;
 
 	rpmd->tcpc = tcpc_dev_get_by_name("type_c_port0");
 	if (!rpmd->tcpc) {
@@ -638,6 +699,9 @@ static int rt_pd_manager_probe(struct platform_device *pdev)
 		rpmd->tcpc_kpoc = false;
 	dev_info(rpmd->dev, "%s tcpc_kpoc = %d\n", __func__, rpmd->tcpc_kpoc);
 #endif /* CONFIG_WATER_DETECTION */
+
+	rpmd->sink_mv_old = -1;
+	rpmd->sink_ma_old = -1;
 
 	ret = typec_init(rpmd);
 	if (ret < 0) {
@@ -664,10 +728,14 @@ err_reg_tcpc_notifier:
 err_init_typec:
 err_get_tcpc_dev:
 #ifdef CONFIG_MTK_CHARGER
+#ifdef ADAPT_CHARGER_V1
+err_get_chg_consumer:
+#else
 #ifdef CONFIG_WATER_DETECTION
 	power_supply_put(rpmd->chg_psy);
 err_get_chg_psy:
 #endif /* CONFIG_WATER_DETECTION */
+#endif /* ADAPT_CHARGER_V1 */
 err_get_chg_dev:
 #endif /* CONFIG_MTK_CHARGER */
 	return ret;
@@ -689,9 +757,11 @@ static int rt_pd_manager_remove(struct platform_device *pdev)
 
 	typec_unregister_port(rpmd->typec_port);
 #ifdef CONFIG_MTK_CHARGER
+#ifndef ADAPT_CHARGER_V1
 #ifdef CONFIG_WATER_DETECTION
 	power_supply_put(rpmd->chg_psy);
 #endif /* CONFIG_WATER_DETECTION */
+#endif /* ADAPT_CHARGER_V */
 #endif /* CONFIG_MTK_CHARGER */
 
 	return ret;
@@ -716,13 +786,12 @@ static int __init rt_pd_manager_init(void)
 {
 	return platform_driver_register(&rt_pd_manager_driver);
 }
+late_initcall(rt_pd_manager_init);
 
 static void __exit rt_pd_manager_exit(void)
 {
 	platform_driver_unregister(&rt_pd_manager_driver);
 }
-
-late_initcall(rt_pd_manager_init);
 module_exit(rt_pd_manager_exit);
 
 MODULE_AUTHOR("Jeff Chang");

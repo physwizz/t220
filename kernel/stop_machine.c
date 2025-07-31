@@ -8,9 +8,6 @@
  *
  * This file is released under the GPLv2 and any later version.
  */
-//TabA7 Lite  code for OT8-656 by yanghui start at 20210104
-#include <linux/compiler.h>
-//TabA7 Lite  code for OT8-656 by yanghui end at 20210104
 #include <linux/completion.h>
 #include <linux/cpu.h>
 #include <linux/init.h>
@@ -171,9 +168,7 @@ static void set_state(struct multi_stop_data *msdata,
 	/* Reset ack counter. */
 	atomic_set(&msdata->thread_ack, msdata->num_threads);
 	smp_wmb();
-//TabA7 Lite  code for OT8-656 by yanghui start at 20210104
-	WRITE_ONCE(msdata->state, newstate);
-//TabA7 Lite  code for OT8-656 by yanghui end at 20210104
+	msdata->state = newstate;
 }
 
 /* Last one to ack a state moves to the next state. */
@@ -187,9 +182,7 @@ static void ack_state(struct multi_stop_data *msdata)
 static int multi_cpu_stop(void *data)
 {
 	struct multi_stop_data *msdata = data;
-//TabA7 Lite  code for OT8-656 by yanghui start at 20210104
-	enum multi_stop_state newstate, curstate = MULTI_STOP_NONE;
-//TabA7 Lite  code for OT8-656 by yanghui end at 20210104
+	enum multi_stop_state curstate = MULTI_STOP_NONE;
 	int cpu = smp_processor_id(), err = 0;
 	unsigned long flags;
 	bool is_active;
@@ -209,11 +202,8 @@ static int multi_cpu_stop(void *data)
 	do {
 		/* Chill out and ensure we re-read multi_stop_state. */
 		cpu_relax_yield();
-//TabA7 Lite  code for OT8-656 by yanghui start at 20210104
-		newstate = READ_ONCE(msdata->state);
-		if (newstate != curstate) {
-			curstate = newstate;
-//TabA7 Lite  code for OT8-656 by yanghui end at 20210104
+		if (msdata->state != curstate) {
+			curstate = msdata->state;
 			switch (curstate) {
 			case MULTI_STOP_DISABLE_IRQ:
 				local_irq_disable();

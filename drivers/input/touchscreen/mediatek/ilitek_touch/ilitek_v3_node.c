@@ -378,9 +378,11 @@ static ssize_t ili_test_show(struct device *dev,struct device_attribute *attr,ch
 	ILI_INFO("Run MP test with LCM on\n");
 	mutex_lock(&ilits->touch_mutex);
 
+	/* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 start */
 	/* Create the directory for mp_test result */
-	if ((dev_mkdir(CSV_LCM_ON_PATH, S_IRUGO | S_IWUSR)) != 0)
+	if ((dev_mkdir(CSV_LCM_ON_PATH, 0777)) != 0)
 		ILI_ERR("Failed to create directory for mp_test\n");
+	/* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 end */
 
 	if (esd_en)
 		ili_wq_ctrl(WQ_ESD, DISABLE);

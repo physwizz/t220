@@ -134,9 +134,10 @@
 	cam0_vcamio-supply = <&mt_pmic_vcamio_ldo_reg>;
 	cam1_vcamio-supply = <&mt_pmic_vcamio_ldo_reg>;
 	cam0_vcamaf-supply = <&mt_pmic_vldo28_ldo_reg>;
-
-        cam0_enable_sensor = "hi846_sjc_mipi_raw gc8054_hlt_mipi_raw hi846_txd_mipi_raw gc8054_cxt_mipi_raw";
-	cam1_enable_sensor = "gc02m1_sjc_mipi_raw gc02m1_cxt_mipi_raw ov02b10_jk_mipi_raw";
+/*  TabA7 Lite code for SR-AX3565-01-875 by gaozhenyu at 2021/11/19 start */
+        cam0_enable_sensor = "hi846_sjc_mipi_raw gc8054_hlt_mipi_raw hi846_txd_mipi_raw gc8054_cxt_mipi_raw sc800cs_ly_mipi_raw s5k4h7_hlt_mipi_raw";
+/*  TabA7 Lite　code for SR-AX3565-01-875 by gaozhenyu at 2021/11/19 end */
+	cam1_enable_sensor = "gc02m1_sjc_mipi_raw gc02m1sub_cxt_mipi_raw ov02b10_jk_mipi_raw";
 	status = "okay";
 };
 

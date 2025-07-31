@@ -398,7 +398,7 @@
 #define BTN_MODE		0x13c
 #define BTN_THUMBL		0x13d
 #define BTN_THUMBR		0x13e
-#define BTN_GAME		0x13f	/* Add game button for samsung bluetooth keypad */
+#define BTN_GAME		0x13f
 
 #define BTN_DIGI		0x140
 #define BTN_TOOL_PEN		0x140
@@ -650,22 +650,6 @@
 #define KEY_DATA			0x277
 #define KEY_ONSCREEN_KEYBOARD		0x278
 
-#define KEY_DEX_ON			0x2bd
-
-/*TabA7 Lite code for OT8-390 by Hujincan at 20201225 start*/
-#ifdef HQ_FACTORY_BUILD
-/* for top sar */
-#define KEY_SAR_CLOSE           0x279
-#define KEY_SAR_FAR             0x27a
-
-/* for bottom sar */
-#define KEY_SAR2_CLOSE          0x27b
-#define KEY_SAR2_FAR            0x27c
-#endif
-/*TabA7 Lite code for OT8-390 by Hujincan at 20201225 end*/
-
-#define KEY_DEX_ON			0x2bd
-
 #define BTN_TRIGGER_HAPPY		0x2c0
 #define BTN_TRIGGER_HAPPY1		0x2c0
 #define BTN_TRIGGER_HAPPY2		0x2c1
@@ -708,9 +692,22 @@
 #define BTN_TRIGGER_HAPPY39		0x2e6
 #define BTN_TRIGGER_HAPPY40		0x2e7
 
+#define KEY_DEX_ON				0x2bd
 #define BTN_HOTKEY_APP1 		0x2f5
 #define BTN_HOTKEY_APP2 		0x2f6
 #define BTN_HOTKEY_APP3 		0x2f7
+
+#ifdef HQ_FACTORY_BUILD
+/* hs03s code for SR-AL5625-01-168 by xiongxiaoliang at 2021/06/12 start */
+/* for top sar */
+#define KEY_SAR_CLOSE           0x279
+#define KEY_SAR_FAR             0x27a
+
+/* for bottom sar */
+#define KEY_SAR2_CLOSE          0x27b
+#define KEY_SAR2_FAR            0x27c
+/* hs03s code for SR-AL5625-01-168 by xiongxiaoliang at 2021/06/12 end */
+#endif
 
 /* We avoid low common keys in module aliases so they don't get huge. */
 #define KEY_MIN_INTERESTING	KEY_MUTE
@@ -791,7 +788,7 @@
 #define ABS_MT_DISTANCE		0x3b	/* Contact hover distance */
 #define ABS_MT_TOOL_X		0x3c	/* Center X tool position */
 #define ABS_MT_TOOL_Y		0x3d	/* Center Y tool position */
-#define BTN_PALM            0x118        /* palm flag */ 
+#define BTN_PALM            0x118        /* palm flag */
 
 #define ABS_MAX			0x3f
 #define ABS_CNT			(ABS_MAX+1)
@@ -818,10 +815,11 @@
 #define SW_LINEIN_INSERT	0x0d  /* set = inserted */
 #define SW_MUTE_DEVICE		0x0e  /* set = device disabled */
 #define SW_PEN_INSERTED		0x0f  /* set = pen inserted */
-#define SW_HPHL_OVERCURRENT	0x10  /* set = over current on left hph */
-#define SW_HPHR_OVERCURRENT	0x11  /* set = over current on right hph */
-#define SW_MICROPHONE2_INSERT	0x12  /* set = inserted */
-#define SW_UNSUPPORT_INSERT	0x13  /* set = unsupported device inserted */
+#define SW_MACHINE_COVER	0x10  /* set = cover closed */
+#define SW_HPHL_OVERCURRENT	0x11  /* set = over current on left hph */
+#define SW_HPHR_OVERCURRENT	0x12  /* set = over current on right hph */
+#define SW_MICROPHONE2_INSERT	0x13  /* set = inserted */
+#define SW_UNSUPPORT_INSERT	0x14  /* set = unsupported device inserted */
 #define SW_MAX			0x20
 #define SW_CNT			(SW_MAX+1)
 

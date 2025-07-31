@@ -18,9 +18,7 @@ bat_gm30: battery{
 	PMIC_SHUTDOWN_CURRENT = <(20)>;	/*	System shutdown current.*/
 	FG_METER_RESISTANCE = <(75)>;	/*	The resistance of PCB*/
 	/*	Tune value for current measurement.*/
-	/* TabA7 Lite code for OT8-609 modify battery capcity accuracy by shixuanxuan at 20210104 start */
-	CAR_TUNE_VALUE = <(101)>;
-	/* TabA7 Lite code for OT8-609 modify battery capcity accuracy by shixuanxuan at 20210104 end */
+	CAR_TUNE_VALUE = <(100)>;
 	PMIC_MIN_VOL = <(33500)>;
 	/*	vboot voltage for gauge 0%.*/
 	POWERON_SYSTEM_IBOOT = <(500)>;
@@ -32,13 +30,11 @@ bat_gm30: battery{
 	TEMPERATURE_T2 = <(10)>;	/*	Battery temperature T2*/
 	TEMPERATURE_T3 = <(0)>;	/*	Battery temperature T3*/
 	TEMPERATURE_T4 = <(-10)>;	/*	Battery temperature T4*/
-	/* TabA7 Lite code for OT8-609 modify battery capcity accuracy by shixuanxuan at 20210104 start */
-	g_FG_PSEUDO100_T0 = <(98)>;	/*	Pseudo 100% percentage at T0.*/
-	g_FG_PSEUDO100_T1 = <(98)>;	/*	Pseudo 100% percentage at T1.*/
-	g_FG_PSEUDO100_T2 = <(98)>;	/*	Pseudo 100% percentage at T2.*/
-	g_FG_PSEUDO100_T3 = <(98)>;	/*	Pseudo 100% percentage at T3.*/
-	g_FG_PSEUDO100_T4 = <(98)>;	/*	Pseudo 100% percentage at T4.*/
-	/* TabA7 Lite code for OT8-609 modify battery capcity accuracy by shixuanxuan at 20210104 end */
+	g_FG_PSEUDO100_T0 = <(100)>;	/*	Pseudo 100% percentage at T0.*/
+	g_FG_PSEUDO100_T1 = <(100)>;	/*	Pseudo 100% percentage at T1.*/
+	g_FG_PSEUDO100_T2 = <(100)>;	/*	Pseudo 100% percentage at T2.*/
+	g_FG_PSEUDO100_T3 = <(100)>;	/*	Pseudo 100% percentage at T3.*/
+	g_FG_PSEUDO100_T4 = <(100)>;	/*	Pseudo 100% percentage at T4.*/
 	/*	System shut down voltage.*/
 	Q_MAX_SYS_VOLTAGE_BAT0 = <(3350)>;
 	/*	System shut down voltage.*/

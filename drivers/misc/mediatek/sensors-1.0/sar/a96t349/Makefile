@@ -1,2 +1,1 @@
-
-obj-y	+=  abov_sar.o
+obj-$(CONFIG_CUSTOM_KERNEL_SAR_SENSOR) += abov_sar.o

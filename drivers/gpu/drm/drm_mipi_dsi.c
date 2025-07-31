@@ -33,6 +33,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/slab.h>
 
+#include <drm/drm_dsc.h>
 #include <video/mipi_display.h>
 
 /**
@@ -553,6 +554,56 @@ int mipi_dsi_set_maximum_return_packet_size(struct mipi_dsi_device *dsi,
 EXPORT_SYMBOL(mipi_dsi_set_maximum_return_packet_size);
 
 /**
+ * mipi_dsi_compression_mode() - enable/disable DSC on the peripheral
+ * @dsi: DSI peripheral device
+ * @enable: Whether to enable or disable the DSC
+ *
+ * Enable or disable Display Stream Compression on the peripheral using the
+ * default Picture Parameter Set and VESA DSC 1.1 algorithm.
+ *
+ * Return: 0 on success or a negative error code on failure.
+ */
+ssize_t mipi_dsi_compression_mode(struct mipi_dsi_device *dsi, bool enable)
+{
+	/* Note: Needs updating for non-default PPS or algorithm */
+	u8 tx[2] = { enable << 0, 0 };
+	struct mipi_dsi_msg msg = {
+		.channel = dsi->channel,
+		.type = MIPI_DSI_COMPRESSION_MODE,
+		.tx_len = sizeof(tx),
+		.tx_buf = tx,
+	};
+	int ret = mipi_dsi_device_transfer(dsi, &msg);
+
+	return (ret < 0) ? ret : 0;
+}
+EXPORT_SYMBOL(mipi_dsi_compression_mode);
+
+/**
+ * mipi_dsi_picture_parameter_set() - transmit the DSC PPS to the peripheral
+ * @dsi: DSI peripheral device
+ * @pps: VESA DSC 1.1 Picture Parameter Set
+ *
+ * Transmit the VESA DSC 1.1 Picture Parameter Set to the peripheral.
+ *
+ * Return: 0 on success or a negative error code on failure.
+ */
+ssize_t mipi_dsi_picture_parameter_set(struct mipi_dsi_device *dsi,
+				       const struct drm_dsc_picture_parameter_set *pps)
+{
+	struct mipi_dsi_msg msg = {
+		.channel = dsi->channel,
+		.type = MIPI_DSI_PICTURE_PARAMETER_SET,
+		.tx_len = sizeof(*pps),
+		.tx_buf = pps,
+	};
+	int ret = mipi_dsi_device_transfer(dsi, &msg);
+
+	return (ret < 0) ? ret : 0;
+}
+EXPORT_SYMBOL(mipi_dsi_picture_parameter_set);
+
+/**
  * mipi_dsi_generic_write() - transmit data using a generic write packet
  * @dsi: DSI peripheral device
  * @payload: buffer containing the payload
@@ -1035,11 +1086,11 @@ EXPORT_SYMBOL(mipi_dsi_dcs_set_pixel_format);
  */
 int mipi_dsi_dcs_set_tear_scanline(struct mipi_dsi_device *dsi, u16 scanline)
 {
-	u8 payload[3] = { MIPI_DCS_SET_TEAR_SCANLINE, scanline >> 8,
-			  scanline & 0xff };
+	u8 payload[2] = { scanline >> 8, scanline & 0xff };
 	ssize_t err;
 
-	err = mipi_dsi_generic_write(dsi, payload, sizeof(payload));
+	err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_TEAR_SCANLINE, payload,
+				 sizeof(payload));
 	if (err < 0)
 		return err;
 
@@ -1052,33 +1103,17 @@ EXPORT_SYMBOL(mipi_dsi_dcs_set_tear_scanline);
  *    display
  * @dsi: DSI peripheral device
  * @brightness: brightness value
- * @num_params: Number of parameters (bytes) to encode brightness value in. The
- *              MIPI specification states that one parameter shall be sent for
- *              devices that support 8-bit brightness levels. For devices that
- *              support brightness levels wider than 8-bit, two parameters
- *              shall be sent.
  *
  * Return: 0 on success or a negative error code on failure.
  */
 int mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
-					u16 brightness, size_t num_params)
+					u16 brightness)
 {
-	u8 payload[2];
+	u8 payload[2] = { brightness & 0xff, brightness >> 8 };
 	ssize_t err;
 
-	switch (num_params) {
-	case 1:
-		payload[0] = brightness & 0xff;
-		break;
-	case 2:
-		payload[0] = brightness >> 8;
-		payload[1] = brightness & 0xff;
-		break;
-	default:
-		return -EINVAL;
-	}
 	err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
-				 payload, num_params);
+				 payload, sizeof(payload));
 	if (err < 0)
 		return err;
 
@@ -1091,39 +1126,21 @@ EXPORT_SYMBOL(mipi_dsi_dcs_set_display_brightness);
  *    of the display
  * @dsi: DSI peripheral device
  * @brightness: brightness value
- * @num_params: Number of parameters (i.e. bytes) the brightness value is
- *              encoded in. The MIPI specification states that one parameter
- *              shall be returned from devices that support 8-bit brightness
- *              levels. Devices that support brightness levels wider than
- *              8-bit return two parameters (i.e. bytes).
  *
  * Return: 0 on success or a negative error code on failure.
  */
 int mipi_dsi_dcs_get_display_brightness(struct mipi_dsi_device *dsi,
-					u16 *brightness, size_t num_params)
+					u16 *brightness)
 {
-	u8 payload[2];
 	ssize_t err;
 
-	if (!(num_params == 1 || num_params == 2))
-		return -EINVAL;
-
 	err = mipi_dsi_dcs_read(dsi, MIPI_DCS_GET_DISPLAY_BRIGHTNESS,
-				payload, num_params);
+				brightness, sizeof(*brightness));
 	if (err <= 0) {
 		if (err == 0)
 			err = -ENODATA;
 
 		return err;
-	}
-
-	switch (num_params) {
-	case 1:
-		*brightness = payload[0];
-		break;
-	case 2:
-		*brightness = payload[0] << 8 || payload[1];
-		break;
 	}
 
 	return 0;

@@ -1,7 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0+
 /*
+ * SPDX-License-Identifier: GPL-2.0+
  * Copyright (c) 2019 MediaTek Inc.
- *
  */
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
@@ -98,6 +97,7 @@
 		clock-names = "grdm-clk";
 		/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 end */
 		// sec,gpio_power = <&pio 40 1>;
+		sec,gpio_power = <&pio 159 1>;
     };
 };
 
@@ -314,7 +314,7 @@
 /* accdet end */
 
 /* FINGERPRINT start */
-&spi0 {
+/*&spi0 {
 	#address-cells = <1>;
 	#size-cells = <0>;
 	grdm-spi@0 {
@@ -351,6 +351,7 @@
 		};
 	};
 };
+*/
 /* FINGERPRINT end */
 
 /* IRTX GPIO end */
@@ -584,7 +585,7 @@
 	};
 };
 /* FLASHLIGHT end */
-
+/* #include <ot8/cust.dtsi> */
 #include "ot8/cust_fem.dtsi"
 #include "mediatek/cust_mt8768_camera.dtsi"
 
@@ -592,6 +593,8 @@
 	cd_level = /bits/ 8 <MSDC_CD_HIGH>;
 };
 
+
+ /* modify code for O8 */
 /*TabA7 Lite code for OT8-3701 by wenyaqi at 20210309 start*/
 &mt6370_chg {
 	bc12_sel = <1>;
@@ -608,3 +611,5 @@
 	mt6370pd,intr_gpio = <&pio 41 0x0>;
 };
 /*End of this file, DO NOT ADD ANYTHING HERE*/
+
+

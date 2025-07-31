@@ -13,10 +13,10 @@
 #define CONFIG_MT6370_DCDTOUT_SUPPORT
 
 /* Parameter */
-/* TabA7 Lite code for SR-AX3565-01-827 by wenyaqi at 20210328 start */
-#define SLOW_CHARGING_CURRENT_STANDARD	1000000 /*1000mA*/
+/*HS03s for SR-AL5625-01-278 by wenyaqi at 20210427 start*/
+#define SLOW_CHARGING_CURRENT_STANDARD	400000 /*400mA*/
 #define V_SLOW_CHARGER_MIN 4500000 /*4.5 V*/
-/* TabA7 Lite code for SR-AX3565-01-827 by wenyaqi at 20210328 end */
+/*HS03s for SR-AL5625-01-278 by wenyaqi at 20210427 end*/
 /* uA */
 #define MT6370_ICHG_NUM		64
 #define MT6370_ICHG_MIN		100000
@@ -144,11 +144,13 @@
 #define MT6370_MASK_CHG_RST	(1 << MT6370_SHIFT_CHG_RST)
 
 /* ========== CHG_CTRL1 0x11 ============ */
-#define MT6370_SHIFT_OPA_MODE	0
-#define MT6370_SHIFT_HZ_EN	2
+#define MT6370_SHIFT_OPA_MODE		0
+#define MT6370_SHIFT_HZ_EN		2
+#define MT6370_SHIFT_FORCE_SLEEP	3
 
-#define MT6370_MASK_OPA_MODE	(1 << MT6370_SHIFT_OPA_MODE)
-#define MT6370_MASK_HZ_EN	(1 << MT6370_SHIFT_HZ_EN)
+#define MT6370_MASK_OPA_MODE		(1 << MT6370_SHIFT_OPA_MODE)
+#define MT6370_MASK_HZ_EN		(1 << MT6370_SHIFT_HZ_EN)
+#define MT6370_MASK_FORCE_SLEEP		(1 << MT6370_SHIFT_FORCE_SLEEP)
 
 /* ========== CHG_CTRL2 0x12 ============ */
 #define MT6370_SHIFT_CHG_EN		0
@@ -325,23 +327,21 @@
 #define MT6370_MASK_DC_VBUSOV_EN	(1 << MT6370_SHIFT_DC_VBUSOV_EN)
 #define MT6370_MASK_DC_VBUSOV_LVL	0x7C
 
-/*TabA7 Lite code for OT8-361 add mtk patch by wenyaqi at 20201225 start*/
+/*HS03s for SR-AL5625-01-261 by wenyaqi at 20210428 start*/
 /* ========== CHGHIDDENCTRL15 0x3E ============ */
 #define MT6370_MASK_dADC_IBIAS_SEL	(0x0C)
-/*TabA7 Lite code for OT8-361 add mtk patch by wenyaqi at 20201225 end*/
+/*HS03s for SR-AL5625-01-261 by wenyaqi at 20210428 end*/
 
 /* ========== CHG_STAT 0x4A ============ */
 #define MT6370_SHIFT_ADC_STAT	0
 #define MT6370_SHIFT_CHG_STAT	6
-/* TabA7 Lite code for SR-AX3565-01-123 add charge_type node by shixuanxuan at 20201223 start */
+/*HS03s for SR-AL5625-01-278 by wenyaqi at 20210427 start*/
 #define MT6371_SHIFT_BATT_CHG_STAT	4
-/* TabA7 Lite code for SR-AX3565-01-123 add charge_type node by shixuanxuan at 20201223 end */
 
 #define MT6370_MASK_ADC_STAT	(1 << MT6370_SHIFT_ADC_STAT)
 #define MT6370_MASK_CHG_STAT	0xC0
-/* TabA7 Lite code for SR-AX3565-01-123 add charge_type node by shixuanxuan at 20201223 start */
 #define MT6371_MASK_BAT_CHG_STAT	0x30
-/* TabA7 Lite code for SR-AX3565-01-123 add charge_type node by shixuanxuan at 20201223 end */
+/*HS03s for SR-AL5625-01-278 by wenyaqi at 20210427 end*/
 
 /* ============ VDDA SUPPLY 0x62 ============ */
 #define MT6370_SHIFT_LBPHYS_SEL		(7)

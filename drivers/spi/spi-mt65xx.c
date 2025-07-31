@@ -47,7 +47,6 @@
 #define SPI_CFG0_SCK_LOW_OFFSET           8
 #define SPI_CFG0_CS_HOLD_OFFSET           16
 #define SPI_CFG0_CS_SETUP_OFFSET          24
-#define SPI_ADJUST_CFG0_SCK_LOW_OFFSET    16
 #define SPI_ADJUST_CFG0_CS_HOLD_OFFSET    0
 #define SPI_ADJUST_CFG0_CS_SETUP_OFFSET   16
 
@@ -59,6 +58,8 @@
 #define SPI_CFG1_CS_IDLE_MASK             0xff
 #define SPI_CFG1_PACKET_LOOP_MASK         0xff00
 #define SPI_CFG1_PACKET_LENGTH_MASK       0x3ff0000
+#define SPI_CFG2_SCK_HIGH_OFFSET          0
+#define SPI_CFG2_SCK_LOW_OFFSET           16
 
 #define SPI_CMD_ACT                  BIT(0)
 #define SPI_CMD_RESUME               BIT(1)
@@ -247,7 +248,11 @@ static DEVICE_ATTR_RW(spi_log);
 static void spi_dump_reg(struct mtk_spi *mdata, struct spi_master *master)
 {
 	spi_debug("||**************%s**************||\n", __func__);
+	/*TabA7 Lite code for OT8S-7 by chengerui at 20220302 start*/
+        #ifdef CONFIG_HQ_PROJECT_OT8
 	spi_debug("base:0x%.8x\n", mdata->base);
+        #endif
+        /*TabA7 Lite code for OT8S-7 by chengerui at 20220302 end*/
 	spi_debug("cfg0:0x%.8x\n", readl(mdata->base + SPI_CFG0_REG));
 	spi_debug("cfg1:0x%.8x\n", readl(mdata->base + SPI_CFG1_REG));
 	spi_debug("cfg2:0x%.8x\n", readl(mdata->base + SPI_CFG2_REG));
@@ -369,6 +374,11 @@ static int mtk_spi_prepare_message(struct spi_master *master,
 	if (mdata->dev_comp->need_pad_sel)
 		writel(mdata->pad_sel[spi->chip_select],
 		       mdata->base + SPI_PAD_SEL_REG);
+
+	reg_val = readl(mdata->base + SPI_CFG1_REG);
+	reg_val &= 0x1FFFFFFF;
+	reg_val |= (chip_config->tick_delay << SPI_CFG1_GET_TICK_DLY_OFFSET);
+	writel(reg_val, mdata->base + SPI_CFG1_REG);
 	return 0;
 }
 
@@ -395,7 +405,7 @@ static void mtk_spi_set_cs(struct spi_device *spi, bool enable)
 static void mtk_spi_prepare_transfer(struct spi_master *master,
 			struct spi_transfer *xfer, struct spi_device *spi)
 {
-	u32 spi_clk_hz, div, sck_time, cs_time, reg_val = 0;
+	u32 spi_clk_hz, div, sck_time, cs_time, reg_val;
 	struct mtk_spi *mdata = spi_master_get_devdata(master);
 	u32 cs_setuptime, cs_holdtime, cs_idletime = 0;
 	struct mtk_chip_config *chip_config = spi->controller_data;
@@ -407,7 +417,20 @@ static void mtk_spi_prepare_transfer(struct spi_master *master,
 		div = 1;
 
 	sck_time = (div + 1) / 2;
+	/*TabA7 Lite code for OT8S-7 by chengerui at 20220302 start*/
+#ifdef CONFIG_HQ_PROJECT_OT8
 	cs_time = 1092; // default CLK_PERIOD: 1/109.2MHZ=9.16ns
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS03S
+        cs_time = sck_time * 2;
+#endif
+#if defined(CONFIG_HQ_PROJECT_O22) || defined(CONFIG_HQ_PROJECT_O8)
+        cs_time = sck_time * 2;
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+        cs_time = sck_time * 2;
+#endif
+        /*TabA7 Lite code for OT8S-7 by chengerui at 20220302 end*/
 
 	if (chip_config->cs_setuptime)
 		cs_setuptime = chip_config->cs_setuptime;
@@ -425,10 +448,10 @@ static void mtk_spi_prepare_transfer(struct spi_master *master,
 		cs_idletime = cs_time;
 
 	if (mdata->dev_comp->enhance_timing) {
+		reg_val = (((sck_time - 1) & 0xffff)
+			   << SPI_CFG2_SCK_HIGH_OFFSET);
 		reg_val |= (((sck_time - 1) & 0xffff)
-			   << SPI_CFG0_SCK_HIGH_OFFSET);
-		reg_val |= (((sck_time - 1) & 0xffff)
-			   << SPI_ADJUST_CFG0_SCK_LOW_OFFSET);
+			   << SPI_CFG2_SCK_LOW_OFFSET);
 		writel(reg_val, mdata->base + SPI_CFG2_REG);
 
 		reg_val = 0;
@@ -438,7 +461,7 @@ static void mtk_spi_prepare_transfer(struct spi_master *master,
 			   << SPI_ADJUST_CFG0_CS_SETUP_OFFSET);
 		writel(reg_val, mdata->base + SPI_CFG0_REG);
 	} else {
-		reg_val |= (((sck_time - 1) & 0xff)
+		reg_val = (((sck_time - 1) & 0xff)
 			   << SPI_CFG0_SCK_HIGH_OFFSET);
 		reg_val |= (((sck_time - 1) & 0xff) <<
 			SPI_CFG0_SCK_LOW_OFFSET);
@@ -778,6 +801,8 @@ static int mtk_spi_probe(struct platform_device *pdev)
 	const struct of_device_id *of_id;
 	struct resource *res;
 	int i, irq, ret, addr_bits, value;
+	u32 num_cs = 0;
+	u32 max_dma = 0;
 
 	master = spi_alloc_master(&pdev->dev, sizeof(*mdata));
 	if (!master) {
@@ -789,7 +814,6 @@ static int mtk_spi_probe(struct platform_device *pdev)
 	master->dev.of_node = pdev->dev.of_node;
 	master->mode_bits = SPI_CPOL | SPI_CPHA | SPI_LSB_FIRST;
 
-	master->set_cs = mtk_spi_set_cs;
 	master->prepare_message = mtk_spi_prepare_message;
 	master->transfer_one = mtk_spi_transfer_one;
 	master->can_dma = mtk_spi_can_dma;
@@ -801,6 +825,8 @@ static int mtk_spi_probe(struct platform_device *pdev)
 		ret = -EINVAL;
 		goto err_put_master;
 	}
+	if (!of_property_read_u32(pdev->dev.of_node, "num-cs", &num_cs))
+		master->num_chipselect = num_cs;
 
 	mdata = spi_master_get_devdata(master);
 	mdata->dev_comp = of_id->data;
@@ -822,6 +848,10 @@ static int mtk_spi_probe(struct platform_device *pdev)
 		else
 			master->rt = false;
 	}
+
+	/* avoid access spi register when accessed only in tee in case devapc error */
+	if (!of_property_read_bool(pdev->dev.of_node, "tee-only"))
+		master->set_cs = mtk_spi_set_cs;
 
 	if (mdata->dev_comp->need_pad_sel) {
 		mdata->pad_num = of_property_count_u32_elems(
@@ -852,6 +882,19 @@ static int mtk_spi_probe(struct platform_device *pdev)
 				goto err_put_master;
 			}
 		}
+	}
+
+	if (!of_property_read_u32(pdev->dev.of_node, "max-dma", &max_dma)) {
+		if(max_dma > SZ_256K)
+			max_dma = SZ_256K;
+
+		if(!pdev->dev.dma_parms)
+			pdev->dev.dma_parms = kzalloc(sizeof(pdev->dev.dma_parms), GFP_KERNEL);
+
+		ret = dma_set_max_seg_size(&pdev->dev, max_dma);
+
+		spi_debug("max_dma size is changed to 0x%x\n",
+				dma_get_max_seg_size(&pdev->dev));
 	}
 
 	pm_qos_add_request(&mdata->spi_qos_request, PM_QOS_CPU_DMA_LATENCY,
@@ -947,6 +990,7 @@ static int mtk_spi_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to register master (%d)\n", ret);
 		goto err_disable_runtime_pm;
 	}
+	pr_info("num_chipselect=%d\n", master->num_chipselect);
 
 	if (mdata->dev_comp->need_pad_sel) {
 		if (mdata->pad_num != master->num_chipselect) {

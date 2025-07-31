@@ -12,10 +12,10 @@
 
 #define IMGSENSOR_DEV_NAME "kd_camera_hw"
 
-
+/*hs03s_NM code for SL6215DEV-4183 by liluling at 2022/4/15 start*/
 #define IMGSENSOR_HW_POWER_INFO_MAX	12
-#define IMGSENSOR_HW_SENSOR_MAX_NUM	8
-
+#define IMGSENSOR_HW_SENSOR_MAX_NUM	30
+/*hs03s_NM code for SL6215DEV-4183 by liluling at 2022/4/15 end */
 enum IMGSENSOR_HW_PIN {
 	IMGSENSOR_HW_PIN_NONE = 0,
 	IMGSENSOR_HW_PIN_PDN,

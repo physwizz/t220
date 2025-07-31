@@ -16,8 +16,6 @@
 #ifndef HIMAX_COMMON_H
 #define HIMAX_COMMON_H
 
-#include <asm/segment.h>
-
 #include <linux/uaccess.h>
 #include <linux/atomic.h>
 #include <linux/delay.h>
@@ -40,12 +38,15 @@
 #include "himax_platform.h"
 #include <linux/kallsyms.h>
 #include <linux/version.h>
+/* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 start */
+#include <linux/syscalls.h>
+/* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 end */
 
 #if defined(CONFIG_OF)
 	#include <linux/of_gpio.h>
 #endif
 
-#define HIMAX_DRIVER_VER "2.0.0.73_AX3656_02"
+#define HIMAX_DRIVER_VER "2.0.0.78_HQO6_02"
 
 #define FLASH_DUMP_FILE "/sdcard/HX_Flash_Dump.bin"
 
@@ -57,16 +58,17 @@
 /*===========Himax Option function=============*/
 #define HX_RST_PIN_FUNC
 #define HX_EXCP_RECOVERY
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#define HX_NEW_EVENT_STACK_FORMAT
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
+
+/*#define HX_NEW_EVENT_STACK_FORMAT*/
 /*#define HX_BOOT_UPGRADE*/
 #define HX_SMART_WAKEUP
 /*#define HX_GESTURE_TRACK*/
 #define HX_RESUME_SEND_CMD	/*Need to enable on TDDI chipset*/
 /*#define HX_HIGH_SENSE*/
 /*#define HX_PALM_REPORT*/
+/*hs03s  code for DEVAL5625-127 by wangdeyan at 20210519 start*/
 #define HX_USB_DETECT_GLOBAL
+/*hs03s  code for DEVAL5625-127 by wangdeyan at 20210519 start*/
 
 /* for MTK special platform.If turning on,
  * it will report to system by using specific format.
@@ -85,7 +87,7 @@
  */
 /*#define HX_PON_PIN_SUPPORT*/
 
-//#define HX_FIX_TOUCH_INFO
+/*#define HX_PARSE_FROM_DT*/
 
 /*=============================================*/
 
@@ -118,10 +120,9 @@
 /*Please set the size according to IC*/
 #define DSRAM_SIZE HX_32K_SZ
 #define HX_RESUME_SET_FW
-/*#define HX_CODE_OVERLAY*/
+#define HX_CODE_OVERLAY
 /*Independent threads run the notification chain notification function resume*/
 /*#define HX_CONTAINER_SPEED_UP*/
-#define HX_RESUME_BY_DDI
 #else
 #define HX_TP_PROC_GUEST_INFO
 #endif
@@ -129,10 +130,16 @@
 #if defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)
 /* FW Auto upgrade case, you need to setup the fix_touch_info of module
  */
+extern char *g_fw_boot_upgrade_name;
 #define BOOT_UPGRADE_FWNAME "Himax_firmware.bin"
 #if defined(HX_ZERO_FLASH)
+extern char *g_fw_mp_upgrade_name;
 #define MPAP_FWNAME "Himax_mpfw.bin"
 #endif
+#endif
+
+#if defined(HX_PARSE_FROM_DT)
+extern uint32_t g_proj_id;
 #endif
 
 #if defined(HX_SMART_WAKEUP)
@@ -149,8 +156,6 @@
 /*Resume queue delay work time after LCM RST (unit:ms)
  */
 #define DELAY_TIME 40
-#elif defined(HX_RESUME_BY_DDI)
-#define DELAY_TIME 1
 #endif
 
 #if defined(HX_RST_PIN_FUNC)
@@ -165,12 +170,7 @@
 #define RST_HIGH_PERIOD_E 50100
 #endif
 #endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#define SEC_PALM_FUNC
-#if defined(SEC_PALM_FUNC)
-#define SEC_FINGER_INFO_SZ 24
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
+
 #if defined(HX_CONFIG_FB)
 int fb_notifier_callback(struct notifier_block *self,
 		unsigned long event, void *data);
@@ -179,7 +179,8 @@ int drm_notifier_callback(struct notifier_block *self,
 			unsigned long event, void *data);
 #endif
 
-#define HX_MAX_WRITE_SZ    (64 * 1024 + 4)
+/* notice the size of isram */
+#define HX_MAX_WRITE_SZ    (128 * 1024)
 #define HX_MAX_READ_SZ		(1024)
 
 #define HX_KEY_MAX_COUNT             4
@@ -199,6 +200,7 @@ int drm_notifier_callback(struct notifier_block *self,
 #define HX_83102A_SERIES_PWON		"HX83102A"
 #define HX_83102B_SERIES_PWON		"HX83102B"
 #define HX_83102D_SERIES_PWON		"HX83102D"
+#define HX_83102D_JZ_INX		"JZ_INX_HX83102D"
 #define HX_83102E_SERIES_PWON		"HX83102E"
 #define HX_83103A_SERIES_PWON		"HX83103A"
 #define HX_83106A_SERIES_PWON		"HX83106A"
@@ -206,11 +208,13 @@ int drm_notifier_callback(struct notifier_block *self,
 #define HX_83110B_SERIES_PWON		"HX83110B"
 #define HX_83111B_SERIES_PWON		"HX83111B"
 #define HX_83112A_SERIES_PWON		"HX83112A"
+#define HX_83112A_LS_BOE		"LS_BOE_HX83112A"
 #define HX_83112B_SERIES_PWON		"HX83112B"
 #define HX_83113A_SERIES_PWON		"HX83113A"
 #define HX_83112D_SERIES_PWON		"HX83112D"
 #define HX_83112E_SERIES_PWON		"HX83112E"
 #define HX_83112F_SERIES_PWON		"HX83112F"
+#define HX_83121A_SERIES_PWON		"HX83121A"
 #define HX_83191A_SERIES_PWON		"HX83191A"
 #define HX_83192A_SERIES_PWON		"HX83192A"
 
@@ -225,6 +229,7 @@ int drm_notifier_callback(struct notifier_block *self,
 #define FW_SIZE_64k		65536
 #define FW_SIZE_124k	126976
 #define FW_SIZE_128k	131072
+#define FW_SIZE_256k    262144
 
 #define NO_ERR 0
 #define READY_TO_SERVE 1
@@ -253,7 +258,7 @@ int drm_notifier_callback(struct notifier_block *self,
 #define NOT_REPORT -1
 #endif
 
-#define PEN_INFO_SZ 12
+#define STYLUS_INFO_SZ 12
 
 #if defined(__EMBEDDED_FW__)
 extern const uint8_t _binary___Himax_firmware_bin_start[];
@@ -288,42 +293,42 @@ enum cell_type {
 };
 
 #if defined(HX_SMART_WAKEUP)
-#define HX_KEY_DOUBLE_CLICK		KEY_WAKEUP
-#define HX_KEY_UP							KEY_UP
-#define HX_KEY_DOWN						KEY_DOWN
-#define HX_KEY_LEFT						KEY_LEFT
-#define HX_KEY_RIGHT					KEY_RIGHT
-#define HX_KEY_C							KEY_C
-#define HX_KEY_Z							KEY_Z
-#define HX_KEY_M							KEY_M
-#define HX_KEY_O							KEY_O
-#define HX_KEY_S							KEY_S
-#define HX_KEY_V							KEY_V
-#define HX_KEY_W							KEY_W
-#define HX_KEY_E							KEY_E
-#define HX_KEY_LC_M						263
-#define HX_KEY_AT							264
-#define HX_KEY_RESERVE				265
-#define HX_KEY_FINGER_GEST		266
-#define HX_KEY_V_DOWN					267
-#define HX_KEY_V_LEFT					268
-#define HX_KEY_V_RIGHT				269
-#define HX_KEY_F_RIGHT				270
-#define HX_KEY_F_LEFT					271
-#define HX_KEY_DF_UP					272
-#define HX_KEY_DF_DOWN				273
-#define HX_KEY_DF_LEFT				274
-#define HX_KEY_DF_RIGHT				275
+#define HX_KEY_DOUBLE_CLICK KEY_WAKEUP
+#define HX_KEY_UP           KEY_UP
+#define HX_KEY_DOWN         KEY_DOWN
+#define HX_KEY_LEFT         KEY_LEFT
+#define HX_KEY_RIGHT        KEY_RIGHT
+#define HX_KEY_C            KEY_C
+#define HX_KEY_Z            KEY_Z
+#define HX_KEY_M            KEY_M
+#define HX_KEY_O            KEY_O
+#define HX_KEY_S            KEY_S
+#define HX_KEY_V            KEY_V
+#define HX_KEY_W            KEY_W
+#define HX_KEY_E            KEY_E
+#define HX_KEY_LC_M         263
+#define HX_KEY_AT           264
+#define HX_KEY_RESERVE      265
+#define HX_KEY_FINGER_GEST  266
+#define HX_KEY_V_DOWN       267
+#define HX_KEY_V_LEFT       268
+#define HX_KEY_V_RIGHT      269
+#define HX_KEY_F_RIGHT      270
+#define HX_KEY_F_LEFT       271
+#define HX_KEY_DF_UP        272
+#define HX_KEY_DF_DOWN      273
+#define HX_KEY_DF_LEFT      274
+#define HX_KEY_DF_RIGHT     275
 #endif
 
 enum fix_touch_info {
 	FIX_HX_RX_NUM = 36,
-	FIX_HX_TX_NUM = 22,
+	FIX_HX_RX_NUM_83102D = 32,
+	FIX_HX_TX_NUM = 18,
 	FIX_HX_BT_NUM = 0,
 	FIX_HX_MAX_PT = 10,
-	FIX_HX_XY_REVERSE = false,
 	FIX_HX_INT_IS_EDGE = true,
-	FIX_HX_PEN_FUNC = false,
+	FIX_HX_STYLUS_FUNC = 0,
 #if defined(HX_TP_PROC_2T2R)
 	FIX_HX_RX_NUM_2 = 0,
 	FIX_HX_TX_NUM_2 = 0,
@@ -347,15 +352,15 @@ struct himax_ic_data {
 	uint8_t vendor_cus_info[12];
 	uint8_t vendor_proj_info[12];
 	uint8_t vendor_ic_id[13];
-	int HX_RX_NUM;
-	int HX_TX_NUM;
-	int HX_BT_NUM;
-	int HX_X_RES;
-	int HX_Y_RES;
-	int HX_MAX_PT;
-	bool HX_XY_REVERSE;
-	bool HX_INT_IS_EDGE;
-	bool HX_PEN_FUNC;
+	uint32_t flash_size;
+	uint32_t HX_RX_NUM;
+	uint32_t HX_TX_NUM;
+	uint32_t HX_BT_NUM;
+	uint32_t HX_X_RES;
+	uint32_t HX_Y_RES;
+	uint32_t HX_MAX_PT;
+	uint8_t HX_INT_IS_EDGE;
+	uint8_t HX_STYLUS_FUNC;
 #if defined(HX_TP_PROC_2T2R)
 	int HX_RX_NUM_2;
 	int HX_TX_NUM_2;
@@ -371,39 +376,42 @@ struct himax_virtual_key {
 	int y_range_max;
 };
 
+struct himax_target_point_data {
+	int x;
+	int y;
+	int w;
+	int id;
+};
+
+struct himax_target_stylus_data {
+	int32_t x;
+	int32_t y;
+	int32_t w;
+	int32_t id;
+	uint32_t hover;
+	int32_t tilt_x;
+	uint32_t btn;
+	uint32_t btn2;
+	int32_t tilt_y;
+	uint32_t on;
+	int pre_btn;
+	int pre_btn2;
+};
+
 struct himax_target_report_data {
-	int *x;
-	int *y;
-	int *w;
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-	int *maj;
-	int *min;
-	int *palm;
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
-	int *finger_id;
+
+	struct himax_target_point_data *p;
+
 	int finger_on;
 	int finger_num;
+
 #if defined(HX_SMART_WAKEUP)
 	int SMWP_event_chk;
 #endif
 
-	int32_t *p_x;
-	int32_t *p_y;
-	int32_t *p_w;
-	int32_t *pen_id;
-	uint32_t *p_hover;
-	int32_t *p_tilt_x;
-	uint32_t *p_btn;
-	uint32_t *p_btn2;
-	int32_t *p_tilt_y;
-	uint32_t *p_on;
-	int pre_p_btn;
-	int pre_p_btn2;
+	struct himax_target_stylus_data *s;
 
 	int ig_count;
-
 };
 
 struct himax_report_data {
@@ -455,7 +463,7 @@ struct himax_ts_data {
 	uint16_t pre_finger_mask;
 	uint16_t old_finger;
 	int hx_point_num;
-
+	uint8_t hx_stylus_num;
 
 	uint32_t debug_log_level;
 	uint32_t widthFactor;
@@ -479,7 +487,7 @@ struct himax_ts_data {
 	struct work_struct work;
 	struct input_dev *input_dev;
 
-	struct input_dev *hx_pen_dev;
+	struct input_dev *stylus_dev;
 
 	struct hrtimer timer;
 	struct i2c_client *client;
@@ -510,12 +518,11 @@ struct himax_ts_data {
 	struct workqueue_struct *himax_boot_upgrade_wq;
 	struct delayed_work work_boot_upgrade;
 
-#if defined(HX_CONTAINER_SPEED_UP) || defined(HX_RESUME_BY_DDI)
+#if defined(HX_CONTAINER_SPEED_UP)
 	struct workqueue_struct *ts_int_workqueue;
 	struct delayed_work ts_int_work;
 #endif
 
-	struct mutex fw_update_lock;
 	struct workqueue_struct *himax_diag_wq;
 	struct delayed_work himax_diag_delay_work;
 
@@ -536,18 +543,18 @@ struct himax_ts_data {
 	uint8_t usb_connected;
 	uint8_t *cable_config;
 #endif
-	struct sec_cmd_data sec;
-        bool tp_is_enabled;
 
 #if defined(HX_TP_PROC_GUEST_INFO)
 	struct workqueue_struct *guest_info_wq;
 	struct work_struct guest_info_work;
 #endif
-/*TabA7 Lite code for OT8-2503 by liufurong at 20210210 start*/
+	struct sec_cmd_data sec;
+    bool tp_is_enabled;
 	struct delayed_work hx_ito_test_wq;
 	struct workqueue_struct *hx_ito_wq;
 	struct mutex ito_lock;
-/*TabA7 Lite code for OT8-2503 by liufurong at 20210210 end*/
+
+
 };
 
 struct himax_debug {
@@ -608,16 +615,14 @@ extern struct device *g_device;
 	extern void (*fp_himax_self_test_init)(void);
 #endif
 
-#if defined(HX_RESUME_BY_DDI)
-extern void himax_resume_by_ddi( void);
-#endif
-
 extern int HX_TOUCH_INFO_POINT_CNT;
 
 extern bool ic_boot_done;
 
 int himax_parse_dt(struct himax_ts_data *ts,
 			struct himax_i2c_platform_data *pdata);
+extern void himax_parse_dt_ic_info(struct himax_ts_data *ts,
+		struct himax_i2c_platform_data *pdata);
 int himax_report_data(struct himax_ts_data *ts, int ts_path, int ts_status);
 
 int himax_report_data_init(void);

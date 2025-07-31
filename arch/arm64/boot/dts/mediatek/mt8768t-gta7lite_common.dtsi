@@ -4,8 +4,6 @@
 */
 
 /* Add Samsung configuration over here */
-
-#include "samsung/modem-MTKcommon-pdata.dtsi"
 / {
 	fragment@model {
 		target-path = "/";

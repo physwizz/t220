@@ -56,12 +56,24 @@
 #include <linux/of_irq.h>
 #include <linux/of_address.h>
 #include <linux/reboot.h>
+/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210511 start */
+#if !defined(HQ_FACTORY_BUILD)
+#include<linux/timer.h>
+#include<linux/timex.h>
+#include<linux/rtc.h>
+#endif
+/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210511 end */
 
 #include "mtk_charger.h"
 
-/* AX3565 for SR-AX3565-01-737 add battery protect function by shixuanxuan at 2021/01/13 start */
+/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
 #if !defined(HQ_FACTORY_BUILD)
-#define TSUSPEND 4320// 3days=4320
+/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 start*/
+#ifdef CONFIG_HQ_PROJECT_HS04
+#include "gxy_battery_ttf_hs04.h"
+#endif
+/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 end*/
+#define TSUSPEND 259200// 3days=259200s
 #define ENABLE_BATT_PROTECT 1
 #define DISABLE_BATT_PROTECT 0
 #define ENABLE_SCHARGING 0
@@ -72,7 +84,19 @@
 #define LOW_CAPACITY 55
 #define CHR_COUNT_TIME 60000 // interval time 60s
 #endif
-/* AX3565 for SR-AX3565-01-737 add battery protect function by shixuanxuan at 2021/01/13 end */
+/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 start */
+#ifdef CONFIG_HQ_PROJECT_OT8
+#include "gxy_battery_ttf.h"
+#ifndef HQ_FACTORY_BUILD
+typedef enum batt_full_state {
+	ENABLE_CHARGE,
+	DISABLE_CHARGE,
+	PLUG_OUT
+} batt_full_state_t;
+#endif
+#endif
+/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 end */
 
 struct tag_bootmode {
 	u32 size;
@@ -105,6 +129,163 @@ int chr_get_debug_level(void)
 	return ret;
 }
 
+/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+#if !defined(HQ_FACTORY_BUILD)
+void hq_enable_power_path(struct mtk_charger *info)
+{
+	if (info->cap_hold_count < 3)
+	{
+		info->cmd_discharging = true;
+		charger_dev_enable(info->chg1_dev, false);
+		charger_dev_do_event(info->chg1_dev, EVENT_DISCHARGE, 0);//disable battery charging
+#ifdef CONFIG_HQ_PROJECT_HS03S
+		charger_dev_set_hiz_mode(info->chg1_dev, false);
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+		charger_dev_set_hiz_mode(info->chg1_dev, false);
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+		charger_dev_enable_powerpath(info->chg1_dev, true);
+#endif
+	}
+	info->cap_hold_count++;
+	info->over_cap_count = 0;
+	info->recharge_count = 0;
+	chr_err("%s over_cap_count = %d, cap_hold_count = %d, recharge_count = %d \n", __func__,
+					info->over_cap_count, info->cap_hold_count, info->recharge_count);
+}
+
+void hq_enable_charging(struct mtk_charger *info, bool cval)
+{
+	info->en_batt_protect = DISABLE_BATT_PROTECT;
+
+	if (cval == true) {
+		if (info->recharge_count < 3)
+		{
+			info->cmd_discharging = false;
+			charger_dev_enable(info->chg1_dev, true);
+			charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);// enable battery charging
+#ifdef CONFIG_HQ_PROJECT_HS03S
+			charger_dev_set_hiz_mode(info->chg1_dev, false);
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+			charger_dev_set_hiz_mode(info->chg1_dev, false);
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+			charger_dev_enable_powerpath(info->chg1_dev, true);
+#endif
+			info->recharge_count++;
+			info->over_cap_count = 0;
+			info->cap_hold_count = 0;
+		}
+	} else {
+		if (info->over_cap_count < 3)
+		{
+			info->cmd_discharging = true;
+			charger_dev_enable(info->chg1_dev, false);
+			charger_dev_do_event(info->chg1_dev, EVENT_DISCHARGE, 0);//disable battery charging
+#ifdef CONFIG_HQ_PROJECT_HS03S
+			charger_dev_set_hiz_mode(info->chg1_dev, true);
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+			charger_dev_set_hiz_mode(info->chg1_dev, true);
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+			charger_dev_enable_powerpath(info->chg1_dev, false);
+#endif
+			info->over_cap_count++;
+			info->cap_hold_count = 0;
+			info->recharge_count = 0;
+		}
+	}
+	chr_err("%s over_cap_count = %d, cap_hold_count = %d, recharge_count = %d \n", __func__,
+					info->over_cap_count, info->cap_hold_count, info->recharge_count);
+}
+
+void hq_update_charing_count(struct mtk_charger *info)
+{
+	struct timex txc;
+
+	/* HS03s code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 start */
+	int temp_time;
+
+	temp_time = info->current_time;
+	/* HS03s Lite code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 end */
+
+	do_gettimeofday(&(txc.time));
+	info->current_time = txc.time.tv_sec;
+	/* HS03s Lite code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 start */
+	if (!info->vbus_rising)
+	{
+		info->base_time = info->current_time;
+		info->interval_time = 0;
+	} else {
+		if(info->base_time == 0)// if the usb connected and the phone restart base_time=0;
+			info->base_time = info->current_time;
+
+		if ((info->current_time - temp_time > 3600) || (info->current_time - temp_time < 0))
+		{
+			info->base_time = info->current_time;
+			info->interval_time = 0;
+		} else {
+                        /*Tab A7 lite_U/HS04_U code for AX6739A-2748 by lihao at 202300913 start*/
+			info->interval_time = 0;
+                        /*Tab A7 lite_U/HS04_U code for AX6739A-2748 by lihao at 202300913 end*/
+		}
+	}
+/* HS03s Lite code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 end */
+	chr_err("%s charging interval_time: %d (s)\n", __func__, info->interval_time);
+}
+
+void hq_update_charge_state(struct mtk_charger *info)
+{
+	int batt_capcity;
+
+	hq_update_charing_count(info);
+#ifdef CONFIG_HQ_PROJECT_HS03S
+	if (info->batt_protect_flag == ENABLE_BATT_PROTECT && info->cust_batt_cap == 100)
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+	if (info->batt_protect_flag == ENABLE_BATT_PROTECT && info->cust_batt_cap == 100)
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+        /* TabA7 Lite code for OT8-5454 by shixuanxuan at 20220404 start */
+	if(info->batt_protect_flag == ENABLE_BATT_PROTECT && info->cust_batt_cap == 100)
+        /* TabA7 Lite code for OT8-5454 by shixuanxuan at 20220404 end */
+#endif
+	{
+		if(info->interval_time > TSUSPEND )
+		{
+			batt_capcity = get_uisoc(info);
+			if (batt_capcity > HIGHT_CAPACITY)
+			{
+				hq_enable_charging(info, false);
+				info->en_batt_protect = ENABLE_BATT_PROTECT;
+				chr_err("%s Continue charging over 3 days and capacity > 75, stop charging!! \n", __func__);
+			} else if (batt_capcity == HIGHT_CAPACITY) {
+				hq_enable_power_path(info);
+				info->en_batt_protect = ENABLE_BATT_PROTECT;
+				chr_err("%s Continue charging over 3 days and capacity = 75, stop battery charging!! \n", __func__);
+			} else if (batt_capcity < LOW_CAPACITY) {
+				hq_enable_charging(info, true);
+			}
+		}
+	} else {
+		hq_enable_charging(info, true);
+		info->en_batt_protect = DISABLE_BATT_PROTECT;
+	}
+}
+
+static void hq_charging_count_work(struct work_struct *work)
+{
+	struct mtk_charger *info = container_of(work,
+			struct mtk_charger, charging_count_work.work);
+	hq_update_charge_state(info);
+	schedule_delayed_work(&info->charging_count_work, msecs_to_jiffies(CHR_COUNT_TIME));
+}
+#endif
+/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+
 void _wake_up_charger(struct mtk_charger *info)
 {
 	unsigned long flags;
@@ -119,104 +300,7 @@ void _wake_up_charger(struct mtk_charger *info)
 	info->charger_thread_timeout = true;
 	wake_up(&info->wait_que);
 }
-/* AX3565 for SR-AX3565-01-737 add battery protect function by shixuanxuan at 2021/01/13 start */
-#if !defined(HQ_FACTORY_BUILD)
-void hq_enable_charging(struct mtk_charger *info, bool cval)
-{
-      if (cval == true) {
-		if(info->input_suspend_old != ENABLE_SCHARGING ||
-				info->charge_enable_old != ENABLE_BATT_CHARGING)
-		{
-			info->cmd_discharging = false;
-			charger_dev_enable(info->chg1_dev, true);
-			charger_dev_do_event(info->chg1_dev,
-				EVENT_RECHARGE, 0);
-			charger_dev_enable_powerpath(info->chg1_dev, true);
-			info->input_suspend_old = ENABLE_SCHARGING;
-			info->charge_enable_old = ENABLE_BATT_CHARGING;
-		}
-	} else {
-		if(info->input_suspend_old != DISABLE_SCHARGING ||
-				info->charge_enable_old != DISABLE_BATT_CHARGING)
-		{
-			info->cmd_discharging = true;
-			charger_dev_enable(info->chg1_dev, false);
-			charger_dev_do_event(info->chg1_dev,
-				EVENT_DISCHARGE, 0);
-			charger_dev_enable_powerpath(info->chg1_dev, false);
-			info->input_suspend_old = DISABLE_SCHARGING;
-			info->charge_enable_old = DISABLE_BATT_CHARGING;
-		}
-	}
-}
 
-void hq_enable_power_path(struct mtk_charger *info)
-{
-	if(info->input_suspend_old != ENABLE_SCHARGING ||
-			info->charge_enable_old != DISABLE_BATT_CHARGING)
-	{
-		info->cmd_discharging = true;
-		charger_dev_enable(info->chg1_dev, false); // normal false
-		charger_dev_do_event(info->chg1_dev,
-			EVENT_DISCHARGE, 0);
-		charger_dev_enable_powerpath(info->chg1_dev, true); // normal true
-		info->input_suspend_old = ENABLE_SCHARGING;
-		info->charge_enable_old = DISABLE_BATT_CHARGING;
-
-	}
-}
-
-extern int usb_cc_flag;
-void hq_update_charing_count(struct mtk_charger *info)
-{
-	if(!usb_cc_flag)
-	{
-		info->chr_count = 0;
-		info->en_batt_protect = DISABLE_BATT_PROTECT;
-		hq_enable_charging(info, true);
-	} else {
-		info->chr_count++;
-	}
-}
-
-void hq_update_charge_state(struct mtk_charger *info)
-{
-	union power_supply_propval pval = {0, };
-	int rc;
-
-	hq_update_charing_count(info);
-
-	if(info->batt_protect_flag == ENABLE_BATT_PROTECT)
-	{
-		if(info->chr_count > TSUSPEND )
-		{
-			info->en_batt_protect = ENABLE_BATT_PROTECT;
-			rc = sum_get_prop_from_battery(info, POWER_SUPPLY_PROP_CAPACITY ,&pval);
-			if(rc < 0)
-			{
-				pr_err("%s: Fail to get bms capacity  %d\n",__func__,rc);
-			} else {
-				info->capacity = pval.intval;
-				if(info->capacity > HIGHT_CAPACITY)
-				{
-					hq_enable_charging(info, false);
-				} else if(info->capacity == HIGHT_CAPACITY) {
-					hq_enable_power_path(info);
-				} else if(info->capacity < LOW_CAPACITY){
-					hq_enable_charging(info, true);
-				}
-			}
-		} else {
-			hq_enable_charging(info, true);
-			info->en_batt_protect = DISABLE_BATT_PROTECT;
-		}
-	} else {
-		hq_enable_charging(info, true);
-		info->en_batt_protect = DISABLE_BATT_PROTECT;
-	}
-}
-#endif
-/* AX3565 for SR-AX3565-01-737 add battery protect function by shixuanxuan at 2021/01/13 end */
 bool is_disable_charger(struct mtk_charger *info)
 {
 	if (info == NULL)
@@ -242,7 +326,7 @@ int mtk_charger_notifier(struct mtk_charger *info, int event)
 	return srcu_notifier_call_chain(&info->evt_nh, event, NULL);
 }
 
-/*TabA7 Lite code for SR-AX3565-01-124 Import battery aging by wenyaqi at 20201221 start*/
+/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 start*/
 #ifndef HQ_FACTORY_BUILD
 static int read_range_data_from_node(struct device_node *node,
 		const char *prop_str, struct range_data *ranges,
@@ -311,7 +395,34 @@ clean:
 	return rc;
 }
 #endif
-/*TabA7 Lite code for SR-AX3565-01-124 Import battery aging by wenyaqi at 20201221 end*/
+/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 end*/
+
+/*HS03s for SR-AL5625-01-426 by wenyaqi at 20210515 start*/
+#define PCBAINFO_STR_LEN 6
+static char pcbainfo_from_cmdline[PCBAINFO_STR_LEN + 1];
+static int __init pcbainfo_setup(char *str)
+{
+	strlcpy(pcbainfo_from_cmdline, str,
+		ARRAY_SIZE(pcbainfo_from_cmdline));
+
+	return 1;
+}
+__setup("androidboot.pcbainfo=", pcbainfo_setup);
+
+bool pcbainfo_is(char* str)
+{
+	return !strncmp(pcbainfo_from_cmdline, str,
+				PCBAINFO_STR_LEN + 1);
+}
+
+bool is_latam(void)
+{
+	if(pcbainfo_is("G_25CA") || pcbainfo_is("G_25CC") || pcbainfo_is("G_26CA"))
+		return true;
+	else
+		return false;
+}
+/*HS03s for SR-AL5625-01-426 by wenyaqi at 20210515 end*/
 
 static void mtk_charger_parse_dt(struct mtk_charger *info,
 				struct device *dev)
@@ -320,11 +431,11 @@ static void mtk_charger_parse_dt(struct mtk_charger *info,
 	u32 val = 0;
 	struct device_node *boot_node = NULL;
 	struct tag_bootmode *tag = NULL;
-	/*TabA7 Lite code for SR-AX3565-01-124 Import battery aging by wenyaqi at 20201221 start*/
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 start*/
 	#ifndef HQ_FACTORY_BUILD	//ss version
 	int rc;
 	#endif
-	/*TabA7 Lite code for SR-AX3565-01-124 Import battery aging by wenyaqi at 20201221 end*/
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 end*/
 
 	boot_node = of_parse_phandle(dev->of_node, "bootmode", 0);
 	if (!boot_node)
@@ -444,7 +555,7 @@ static void mtk_charger_parse_dt(struct mtk_charger *info,
 		info->data.jeita_temp_below_t0_cv = JEITA_TEMP_BELOW_T0_CV;
 	}
 
-	/*TabA7 Lite code for SR-AX3565-01-194 config jeita by wenyaqi at 20201204 start*/
+	/*HS03s for SR-AL5625-01-261 by wenyaqi at 20210425 start*/
 	if (of_property_read_u32(np, "jeita_temp_above_t4_cur", &val) >= 0)
 		info->data.jeita_temp_above_t4_cur = val;
 	else {
@@ -492,7 +603,7 @@ static void mtk_charger_parse_dt(struct mtk_charger *info,
 			JEITA_TEMP_BELOW_T0_CUR);
 		info->data.jeita_temp_below_t0_cur = JEITA_TEMP_BELOW_T0_CUR;
 	}
-	/*TabA7 Lite code for SR-AX3565-01-194 config jeita by wenyaqi at 20201204 end*/
+	/*HS03s for SR-AL5625-01-261 by wenyaqi at 20210425 end*/
 
 	if (of_property_read_u32(np, "temp_t4_thres", &val) >= 0)
 		info->data.temp_t4_thres = val;
@@ -652,6 +763,14 @@ static void mtk_charger_parse_dt(struct mtk_charger *info,
 			AC_CHARGER_INPUT_CURRENT);
 		info->data.ac_charger_input_current = AC_CHARGER_INPUT_CURRENT;
 	}
+	/*HS03s for SR-AL5625-01-426 by wenyaqi at 20210515 start*/
+	if (is_latam()) {
+		chr_err("LATAM use AC_CHARGER_INPUT_CURRENT:1000mA\n");
+		info->data.ac_charger_input_current = AC_CHARGER_INPUT_CURRENT_LATAM;
+	} else {
+		chr_err("not LATAM, use default setting\n");
+	}
+	/*HS03s for SR-AL5625-01-426 by wenyaqi at 20210515 start*/
 
 	if (of_property_read_u32(np, "charging_host_charger_current", &val)
 		>= 0) {
@@ -690,7 +809,7 @@ static void mtk_charger_parse_dt(struct mtk_charger *info,
 					MAX_DMIVR_CHARGER_CURRENT;
 	}
 
-	/*TabA7 Lite code for SR-AX3565-01-124 Import battery aging by wenyaqi at 20201221 start*/
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 start*/
 	#ifndef HQ_FACTORY_BUILD	//ss version
 	info->data.ss_batt_aging_enable = of_property_read_bool(np,
 		"ss-batt-aging-enable");
@@ -703,9 +822,8 @@ static void mtk_charger_parse_dt(struct mtk_charger *info,
 		info->data.ss_batt_aging_enable = false;
 	}
 	#endif
-	/*TabA7 Lite code for SR-AX3565-01-124 Import battery aging by wenyaqi at 20201221 end*/
-
-	/*TabA7 Lite code for OT8-3638 import D85 policy by wenyaqi at 20210301 start*/
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 end*/
+	/*HS03s for SR-AL5625-01-248 by wenyaqi at 20210429 start*/
 	#ifdef HQ_D85_BUILD
 	info->data.battery_cv = D85_BATTERY_CV;
 	info->data.jeita_temp_above_t4_cv = D85_JEITA_TEMP_CV;
@@ -714,7 +832,7 @@ static void mtk_charger_parse_dt(struct mtk_charger *info,
 	info->data.jeita_temp_t1_to_t2_cv = D85_JEITA_TEMP_CV;
 	info->data.jeita_temp_t0_to_t1_cv = D85_JEITA_TEMP_CV;
 	#endif
-	/*TabA7 Lite code for OT8-3638 import D85 policy by wenyaqi at 20210301 end*/
+	/*HS03s for SR-AL5625-01-248 by wenyaqi at 20210429 end*/
 }
 
 static void mtk_charger_start_timer(struct mtk_charger *info)
@@ -731,7 +849,28 @@ static void mtk_charger_start_timer(struct mtk_charger *info)
 	}
 
 	get_monotonic_boottime(&time_now);
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    /* modify code for O6 */
 	time.tv_sec = info->polling_interval;
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+    /* modify code for O6 */
+	time.tv_sec = info->polling_interval;
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+    /* modify code for OT8 */
+	/*TabA7 Lite code for P210511-00511 by wenyaqi at 20210518 start*/
+	#ifndef HQ_FACTORY_BUILD
+	if (info->ss_chr_type_detect <= 3) {
+		time.tv_sec = 2;
+		info->ss_chr_type_detect++;
+	 } else
+		time.tv_sec = info->polling_interval;
+	#else
+	time.tv_sec = info->polling_interval;
+	#endif
+	/*TabA7 Lite code for P210511-00511 by wenyaqi at 20210518 end*/
+#endif
 	time.tv_nsec = 0;
 	info->endtime = timespec_add(time_now, time);
 	ktime = ktime_set(info->endtime.tv_sec, info->endtime.tv_nsec);
@@ -757,8 +896,10 @@ static void check_battery_exist(struct mtk_charger *info)
 
 #ifdef FIXME
 	if (count >= 3) {
-		if (boot_mode == META_BOOT || boot_mode == ADVMETA_BOOT ||
-		    boot_mode == ATE_FACTORY_BOOT)
+		/*1 = META_BOOT, 5 = ADVMETA_BOOT*/
+		/*6 = ATE_FACTORY_BOOT */
+		if (boot_mode == 1 || boot_mode == 5 ||
+		    boot_mode == 6)
 			chr_info("boot_mode = %d, bypass battery check\n",
 				boot_mode);
 		else {
@@ -769,7 +910,7 @@ static void check_battery_exist(struct mtk_charger *info)
 #endif
 }
 
-/*TabA7 Lite code for P210209-04223 fix HV_CHARGER_STATUS by wenyaqi at 20210222 start*/
+/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
 #ifdef CONFIG_AFC_CHARGER
 /* detect PE/PE2.0/PE4.0 */
 static bool ss_pump_express_status(struct mtk_charger *info)
@@ -800,7 +941,7 @@ static bool ss_fast_charger_status(struct mtk_charger *info)
 	return false;
 }
 #endif
-/*TabA7 Lite code for P210209-04223 fix HV_CHARGER_STATUS by wenyaqi at 20210222 end*/
+/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
 
 static void check_dynamic_mivr(struct mtk_charger *info)
 {
@@ -836,6 +977,29 @@ static void check_dynamic_mivr(struct mtk_charger *info)
 				info->data.min_charger_voltage);
 	}
 }
+
+/*HS03s for DEVAL5626-469 by liujie at 20210819 start*/
+void init_jeita_state_machine(struct mtk_charger *info)
+{
+    struct sw_jeita_data *sw_jeita;
+
+    info->battery_temp=get_battery_temperature(info);
+    sw_jeita = &info->sw_jeita;
+
+    if (info->battery_temp >= info->data.temp_t4_thres)
+        sw_jeita->sm = TEMP_ABOVE_T4;
+    else if (info->battery_temp > info->data.temp_t3_thres)
+        sw_jeita->sm = TEMP_T3_TO_T4;
+    else if (info->battery_temp >= info->data.temp_t2_thres)
+        sw_jeita->sm = TEMP_T2_TO_T3;
+    else if (info->battery_temp >= info->data.temp_t1_thres)
+        sw_jeita->sm = TEMP_T1_TO_T2;
+    else if (info->battery_temp >= info->data.temp_t0_thres)
+        sw_jeita->sm = TEMP_T0_TO_T1;
+    else
+        sw_jeita->sm = TEMP_BELOW_T0;
+}
+/*HS03s for DEVAL5626-469 by liujie at 20210819 end*/
 
 /* sw jeita */
 void do_sw_jeita_state_machine(struct mtk_charger *info)
@@ -1064,6 +1228,18 @@ static ssize_t ADC_Charger_Voltage_show(struct device *dev,
 }
 
 static DEVICE_ATTR_RO(ADC_Charger_Voltage);
+
+static ssize_t Charger_Config_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct mtk_charger *pinfo = dev->driver_data;
+	int chg_cfg = pinfo->config;
+
+	chr_err("%s: %d\n", __func__, chg_cfg);
+	return sprintf(buf, "%d\n", chg_cfg);
+}
+
+static DEVICE_ATTR_RO(Charger_Config);
 
 static ssize_t input_current_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
@@ -1388,14 +1564,12 @@ static bool mtk_chg_check_vbus(struct mtk_charger *info)
 {
 	int vchr = 0;
 
-	/*TabA7 Lite code for OT8-602 modify sw_ovp function by wenyaqi at 20210111 start*/
 	if (info->ss_vchr != 0)
 		vchr = info->ss_vchr;
 	else {
 		vchr = get_vbus(info) * 1000; /* uV */
 		info->ss_vchr = vchr;
 	}
-	/*TabA7 Lite code for OT8-602 modify sw_ovp function by wenyaqi at 20210111 end*/
 	if (vchr > info->data.max_charger_voltage) {
 		chr_err("%s: vbus(%d mV) > %d mV\n", __func__, vchr / 1000,
 			info->data.max_charger_voltage / 1000);
@@ -1409,14 +1583,12 @@ static void mtk_battery_notify_VCharger_check(struct mtk_charger *info)
 #if defined(BATTERY_NOTIFY_CASE_0001_VCHARGER)
 	int vchr = 0;
 
-	/*TabA7 Lite code for OT8-602 modify sw_ovp function by wenyaqi at 20210111 start*/
 	if (info->ss_vchr != 0)
 		vchr = info->ss_vchr;
 	else {
 		vchr = get_vbus(info) * 1000; /* uV */
 		info->ss_vchr = vchr;
 	}
-	/*TabA7 Lite code for OT8-602 modify sw_ovp function by wenyaqi at 20210111 end*/
 	if (vchr < info->data.max_charger_voltage)
 		info->notify_code &= ~CHG_VBUS_OV_STATUS;
 	else {
@@ -1542,8 +1714,93 @@ static void mtk_chg_get_tchg(struct mtk_charger *info)
 		}
 	}
 }
+#ifdef CONFIG_HQ_PROJECT_OT8
+/* TabA7 Lite code for OT8-5454 by shixuanxuan at 20220404 start */
+#ifndef HQ_FACTORY_BUILD
+static void get_battery_information(struct mtk_charger *info)
+{
+	struct power_supply *psy;
+	union power_supply_propval pval = {0, };
+	int rc;
+	psy = power_supply_get_by_name("battery");
+	if (!psy) {
+		return;
+	}
 
-/*TabA7 Lite code for P210330-05709 by wenyaqi at 20210401 start*/
+	rc = power_supply_get_property(psy, POWER_SUPPLY_PROP_BATT_FULL_CAPACITY, &pval);
+	info->cust_batt_cap = pval.intval;
+
+	rc = power_supply_get_property(psy, POWER_SUPPLY_PROP_CAPACITY, &pval);
+	info->capacity = pval.intval;
+
+	rc = power_supply_get_property(psy, POWER_SUPPLY_PROP_STATUS, &pval);
+	/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 start */
+	info->batt_status = pval.intval;
+	rc = power_supply_get_property(psy, POWER_SUPPLY_PROP_BATT_SOC_RECHG, &pval);
+	info->cust_batt_rechg = pval.intval;
+	/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 end */
+}
+#endif
+#endif
+/* TabA7 Lite code for OT8-5454 by shixuanxuan at 20220404 end */
+/*HS03s for AL5626TDEV-224 by liuhong at 20220921 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
+#ifndef HQ_FACTORY_BUILD
+static void get_battery_information(struct mtk_charger *info)
+{
+	struct power_supply *psy;
+	union power_supply_propval pval = {0, };
+	int rc;
+	psy = power_supply_get_by_name("battery");
+	if (!psy) {
+		return;
+	}
+
+	rc = power_supply_get_property(psy, POWER_SUPPLY_PROP_BATT_FULL_CAPACITY, &pval);
+	info->cust_batt_cap = pval.intval;
+
+	rc = power_supply_get_property(psy, POWER_SUPPLY_PROP_CAPACITY, &pval);
+	info->capacity = pval.intval;
+
+	rc = power_supply_get_property(psy, POWER_SUPPLY_PROP_STATUS, &pval);
+	info->batt_status = (pval.intval == POWER_SUPPLY_STATUS_CHARGING) ? 1 : 0;
+}
+#endif
+#endif
+/*HS03s for AL5626TDEV-224 by liuhong at 20220921 end*/
+/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 start */
+#ifdef CONFIG_HQ_PROJECT_HS04
+#ifndef HQ_FACTORY_BUILD
+static void get_battery_information(struct mtk_charger *info)
+{
+	struct power_supply *psy;
+	union power_supply_propval pval = {0, };
+	int rc;
+	psy = power_supply_get_by_name("battery");
+	if (!psy) {
+		return;
+	}
+
+	rc = power_supply_get_property(psy, POWER_SUPPLY_PROP_BATT_FULL_CAPACITY, &pval);
+	info->cust_batt_cap = pval.intval;
+
+	rc = power_supply_get_property(psy, POWER_SUPPLY_PROP_CAPACITY, &pval);
+	info->capacity = pval.intval;
+
+	rc = power_supply_get_property(psy, POWER_SUPPLY_PROP_STATUS, &pval);
+	/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 start*/
+	//info->batt_status = (pval.intval == POWER_SUPPLY_STATUS_CHARGING) ? 1 : 0;
+	info->batt_status = pval.intval;
+	rc = power_supply_get_property(psy, POWER_SUPPLY_PROP_BATT_SOC_RECHG, &pval);
+	info->cust_batt_rechg = pval.intval;
+	/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 end*/
+}
+#endif
+#endif
+/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 end */
+
+/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 start */
+/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
 #ifndef HQ_FACTORY_BUILD	//ss version
 static void basic_retail_app(struct mtk_charger *info);
 #endif
@@ -1551,53 +1808,342 @@ static void ss_charger_check_status(struct mtk_charger *info)
 {
 	static bool input_suspend_old;
 	static bool ovp_disable_old;
+	/*HS03s added for DEVAL5626-463 by wangzikang at 20210729 start */
+	bool input_suspend_hw;
+	/*HS03s added for DEVAL5626-463 by wangzikang at 20210729 end */
 	#ifdef HQ_FACTORY_BUILD //factory version
 	static bool batt_cap_control_old;
 	#endif
+	/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 start*/
+	#ifdef CONFIG_HQ_PROJECT_HS04
+	struct power_supply *psys = NULL;
+	#endif
+	/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 end*/
 
 	#ifndef HQ_FACTORY_BUILD	//ss version
-	if (info->batt_store_mode) {
-		chr_err("%s:store mode is working\n", __func__);
-		basic_retail_app(info);
-	}
-	#endif
+	static bool store_mode_old;
+#ifdef CONFIG_HQ_PROJECT_OT8
+        /* TabA7 Lite code for OT8-5454 by shixuanxuan at 20220404 start */
+#ifndef HQ_FACTORY_BUILD
+	get_battery_information(info);
 
-	/*TabA7 Lite code for OT8-229 modify sw_ovp function by wenyaqi at 20201218 start*/
+	/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 start */
+	chr_err("%s:batt_protection info->cust_batt_cap = %d, info->cust_batt_rechg = %d, info->batt_status = %d, info->batt_full_flag = %d, info->capacity = %d, info->batt_protection_mode = %d\n",
+			__func__, info->cust_batt_cap, info->cust_batt_rechg, info->batt_status, info->batt_full_flag, info->capacity, info->batt_protection_mode);
+	if (info->cust_batt_cap == 100 && info->cust_batt_rechg == 1) {
+		// 95 recharge
+		if (info->batt_status == POWER_SUPPLY_STATUS_FULL && info->batt_full_flag == ENABLE_CHARGE) {
+			info->batt_full_flag = DISABLE_CHARGE;
+			info->cmd_discharging = true;
+			charger_dev_enable(info->chg1_dev, false);
+			charger_dev_do_event(info->chg1_dev, EVENT_DISCHARGE, 0);
+			charger_dev_enable_powerpath(info->chg1_dev, true);
+		} else if (info->capacity > 95 && info->batt_full_flag == DISABLE_CHARGE) {
+			info->cmd_discharging = true;
+			charger_dev_enable(info->chg1_dev, false);
+			charger_dev_do_event(info->chg1_dev, EVENT_DISCHARGE, 0);
+			charger_dev_enable_powerpath(info->chg1_dev, true);
+		} else {
+			if (info->batt_full_flag == DISABLE_CHARGE || info->batt_full_flag == PLUG_OUT) {
+				info->batt_full_flag = ENABLE_CHARGE;
+				info->cmd_discharging = false;
+				charger_dev_enable(info->chg1_dev, true);
+				charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);
+				charger_dev_enable_powerpath(info->chg1_dev, true);
+			}
+		}
+	} else if (info->cust_batt_cap != 100) {
+		//80 stop charge
+		if ((info->batt_protection_mode == OPTION_MODE || info->batt_protection_mode == SLEEP_MODE)
+			&& info->capacity >= info->cust_batt_cap
+			&& (info->batt_full_flag == ENABLE_CHARGE || info->batt_status == POWER_SUPPLY_STATUS_CHARGING)) {
+			info->batt_full_flag = DISABLE_CHARGE;
+			info->cmd_discharging = true;
+			charger_dev_enable(info->chg1_dev, false);
+			charger_dev_do_event(info->chg1_dev, EVENT_DISCHARGE, 0);
+			charger_dev_enable_powerpath(info->chg1_dev, true);
+		} else if (info->batt_protection_mode == HIGHSOC_MODE
+					&& info->capacity >= info->cust_batt_cap
+					&& (info->batt_full_flag == ENABLE_CHARGE || info->batt_status == POWER_SUPPLY_STATUS_CHARGING)) {
+			info->batt_full_flag = DISABLE_CHARGE;
+			info->cmd_discharging = true;
+			charger_dev_enable(info->chg1_dev, false);
+			charger_dev_do_event(info->chg1_dev, EVENT_DISCHARGE, 0);
+			charger_dev_enable_powerpath(info->chg1_dev, false);
+		}
+		if (((info->capacity <= info->cust_batt_cap - 2) && info->batt_full_flag == DISABLE_CHARGE) || info->batt_full_flag == PLUG_OUT) {
+			info->batt_full_flag = ENABLE_CHARGE;
+			info->cmd_discharging = false;
+			charger_dev_enable(info->chg1_dev, true);
+			charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);
+			charger_dev_enable_powerpath(info->chg1_dev, true);
+		}
+	} else {
+		if (info->batt_full_flag == DISABLE_CHARGE || info->batt_full_flag == PLUG_OUT) {
+			info->batt_full_flag = ENABLE_CHARGE;
+			info->cmd_discharging = false;
+			charger_dev_enable(info->chg1_dev, true);
+			charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);
+			charger_dev_enable_powerpath(info->chg1_dev, true);
+		}
+	}
+	/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 end */
+
+/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 start */
+#if 0
+	if (info->cust_batt_cap != 100 && info->capacity >= info->cust_batt_cap
+			&& (info->batt_full_flag == 0 || info->batt_status)) {
+		info->batt_full_flag = 1;
+		info->cmd_discharging = true;
+		charger_dev_enable(info->chg1_dev, false);
+		charger_dev_do_event(info->chg1_dev, EVENT_DISCHARGE, 0);
+		charger_dev_enable_powerpath(info->chg1_dev, true);
+	}
+
+	/* Tab A7 lite_T for P221021-05487 by duanweiping at 20221024 start */
+	/* Tab A7 lite_T for P221109-03592 by duanweiping at 20221109 start */
+	if ((info->cust_batt_cap == 100 || info->capacity <= info->cust_batt_cap - 2)
+	      && info->batt_full_flag == 1) {
+		info->batt_full_flag = 0;
+		info->cmd_discharging = false;
+		charger_dev_enable(info->chg1_dev, true);
+		charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);
+		charger_dev_enable_powerpath(info->chg1_dev, true);
+	}
+	/* Tab A7 lite_T for P221109-03592 by duanweiping at 20221109 end */
+	/* Tab A7 lite_T for P221021-05487 by duanweiping at 20221024 end */
+#endif
+/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 end */
+
+#endif
+#endif
+/*HS03s for AL5626TDEV-224 by liuhong at 20220921 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
+#ifndef HQ_FACTORY_BUILD
+	get_battery_information(info);
+
+	if (info->cust_batt_cap != 100 && info->capacity >= info->cust_batt_cap
+			&& (info->batt_full_flag == 0 || info->batt_status)) {
+		info->batt_full_flag = 1;
+		info->cmd_discharging = true;
+		charger_dev_enable(info->chg1_dev, false);
+		charger_dev_do_event(info->chg1_dev, EVENT_DISCHARGE, 0);
+		charger_dev_enable_powerpath(info->chg1_dev, true);
+	}
+
+	/* HS03s_T for P221021-05487 by duanweiping at 20221024 start */
+	/* HS03s_T for P221109-03592 by duanweiping at 20221109 start */
+	if ((info->cust_batt_cap == 100 || info->capacity <= info->cust_batt_cap - 2)
+	      && info->batt_full_flag == 1) {
+		info->batt_full_flag = 0;
+		info->cmd_discharging = false;
+		charger_dev_enable(info->chg1_dev, true);
+		charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);
+		charger_dev_enable_powerpath(info->chg1_dev, true);
+	}
+	/* HS03s_T for P221109-03592 by duanweiping at 20221109 end */
+	/* HS03s_T for P221021-05487 by duanweiping at 20221024 end */
+
+#endif
+#endif
+/*HS03s for AL5626TDEV-224 by liuhong at 20220921 end*/
+/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 start */
+#ifdef CONFIG_HQ_PROJECT_HS04
+#ifndef HQ_FACTORY_BUILD
+	get_battery_information(info);
+/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 start*/
+
+	chr_info("%s:chg: batt_protection  cust_batt_cap = %d, cust_batt_rechg = %d, batt_status = %d,\
+		batt_full_flag = %d, capacity = %d, batt_protection_mode = %d\n",
+			__func__, info->cust_batt_cap, info->cust_batt_rechg, info->batt_status, info->batt_full_flag,
+			info->capacity, info->batt_protection_mode);
+	if (info->cust_batt_cap == 100 && info->cust_batt_rechg == 1) {
+		// 95 recharge
+		if (info->batt_status == POWER_SUPPLY_STATUS_FULL && info->batt_full_flag == ENABLE_CHARGE) {
+			info->batt_full_flag = DISABLE_CHARGE;
+			info->cmd_discharging = true;
+			charger_dev_enable(info->chg1_dev, false);
+			charger_dev_set_hiz_mode(info->chg1_dev, false);
+			charger_dev_do_event(info->chg1_dev, EVENT_DISCHARGE, 0);
+		} else if (info->capacity > 95 && info->batt_full_flag != ENABLE_CHARGE) {
+			info->cmd_discharging = true;
+			charger_dev_enable(info->chg1_dev, false);
+			charger_dev_set_hiz_mode(info->chg1_dev, false);
+			charger_dev_do_event(info->chg1_dev, EVENT_DISCHARGE, 0);
+		} else {
+			if (info->batt_full_flag != ENABLE_CHARGE) {
+				info->batt_full_flag = ENABLE_CHARGE;
+				info->cmd_discharging = false;
+				charger_dev_enable(info->chg1_dev, true);
+				charger_dev_set_hiz_mode(info->chg1_dev, false);
+				charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);
+			}
+		}
+	} else if (info->cust_batt_cap != 100) {
+		//80 stop charge
+		if ((info->batt_protection_mode == OPTION_MODE || info->batt_protection_mode == SLEEP_MODE)
+			&& info->capacity >= info->cust_batt_cap
+			&& (info->batt_full_flag != DISABLE_CHARGE || info->batt_status == POWER_SUPPLY_STATUS_CHARGING)) {
+			info->batt_full_flag = DISABLE_CHARGE;
+			info->cmd_discharging = true;
+			charger_dev_enable(info->chg1_dev, false);
+			charger_dev_set_hiz_mode(info->chg1_dev, false);
+			charger_dev_do_event(info->chg1_dev, EVENT_DISCHARGE, 0);
+		} else if (info->batt_protection_mode == HIGHSOC_MODE
+					&& info->capacity >= info->cust_batt_cap
+					&& (info->batt_full_flag != DISABLE_CHARGE_HISOC || info->batt_status == POWER_SUPPLY_STATUS_CHARGING)) {
+			info->batt_full_flag = DISABLE_CHARGE_HISOC;
+			info->cmd_discharging = true;
+			charger_dev_enable(info->chg1_dev, false);
+			charger_dev_set_hiz_mode(info->chg1_dev, true);
+			charger_dev_do_event(info->chg1_dev, EVENT_DISCHARGE, 0);
+			pr_err("SXX hisoc mode");
+		}
+		if ((info->capacity <= info->cust_batt_cap - 2) && info->batt_full_flag != ENABLE_CHARGE) {
+			info->batt_full_flag = ENABLE_CHARGE;
+			info->cmd_discharging = false;
+			charger_dev_enable(info->chg1_dev, true);
+			charger_dev_set_hiz_mode(info->chg1_dev, false);
+			charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);
+		}
+	} else {
+		if (info->batt_full_flag !=ENABLE_CHARGE) {
+			info->batt_full_flag = ENABLE_CHARGE;
+			info->cmd_discharging = false;
+			charger_dev_enable(info->chg1_dev, true);
+			charger_dev_set_hiz_mode(info->chg1_dev, false);
+			charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);
+		}
+	}
+/* Remove Old battery protection */
+/* 	if (info->cust_batt_cap != 100 && info->capacity >= info->cust_batt_cap
+			&& (info->batt_full_flag == 0 || info->batt_status)) {
+		info->batt_full_flag = 1;
+		info->cmd_discharging = true;
+		charger_dev_enable(info->chg1_dev, false);
+		charger_dev_do_event(info->chg1_dev, EVENT_DISCHARGE, 0);
+		charger_dev_enable_powerpath(info->chg1_dev, true);
+	}
+	if ((info->cust_batt_cap == 100 || info->capacity <= info->cust_batt_cap - 2)
+			&& info->batt_full_flag == 1) {
+		info->batt_full_flag = 0;
+		info->cmd_discharging = false;
+		charger_dev_enable(info->chg1_dev, true);
+		charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);
+		charger_dev_enable_powerpath(info->chg1_dev, true);
+	} */
+/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 end*/
+#endif
+#endif
+/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 end*/
+/* TabA7 Lite code for OT8-5454 by shixuanxuan at 20220404 end */
+	if (info->batt_store_mode) {
+		chr_debug("%s:store mode is working\n", __func__);
+		basic_retail_app(info);
+	} else if (info->batt_store_mode == false &&
+		store_mode_old == true && info->input_suspend == true) {
+		chr_debug("%s:store mode exit, restore input_suspend\n", __func__);
+		info->input_suspend = false;
+	}
+	store_mode_old = info->batt_store_mode;
+	#endif
 	if (!mtk_chg_check_vbus(info)) {
 		info->ovp_disable = true;
 	} else {
 		info->ovp_disable = false;
 	}
-
+/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 start*/
+#ifdef CONFIG_HQ_PROJECT_HS04
+	if (info->batt_protection_mode == HIGHSOC_MODE && info->batt_full_flag != ENABLE_CHARGE) {
+		return;
+	}
+#endif
+/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 end*/
+	/*HS03s added for DEVAL5626-463 by wangzikang at 20210729 start */
+	input_suspend_hw = charger_dev_get_hiz_mode(info->chg1_dev);
+	/* TabA7 Lite code for P220922-06047 by duanweiping at 20220927 start */
+#ifdef CONFIG_HQ_PROJECT_OT8
+	charger_dev_is_powerpath_enabled(info->chg1_dev,&input_suspend_hw);
+	/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 start */
+	if(info->batt_protection_mode == HIGHSOC_MODE || info->batt_full_flag == DISABLE_CHARGE || info->batt_full_flag == PLUG_OUT)
+	{
+		chr_err("%s:80 protection:info->batt_protection_mode=%d, info->batt_full_flag=%d\n", __func__,
+				info->batt_protection_mode, info->batt_full_flag);
+		return;
+	}
+	/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 end */
+#endif
+	/* TabA7 Lite code for P220922-06047 by duanweiping at 20220927 end */
+	chr_err("%s: input_suspend_hw=%d",__func__,input_suspend_hw);
+	/*HS03s added for DEVAL5626-463 by wangzikang at 20210729 end */
 	if (input_suspend_old == info->input_suspend &&
+		/*HS03s added for DEVAL5626-463 by wangzikang at 20210729 start */
+#ifdef CONFIG_HQ_PROJECT_HS03S
+                /* modify code for O6 */
+		(input_suspend_hw == info->input_suspend) &&
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+                /* modify code for O6 */
+		(input_suspend_hw == info->input_suspend) &&
+#endif
+	/* TabA7 Lite code for P220922-06047 by duanweiping at 20220927 start */
+#ifdef CONFIG_HQ_PROJECT_OT8
+                /* modify code for OT8 */
+		(!input_suspend_hw == info->input_suspend) &&
+#endif
+	/* TabA7 Lite code for P220922-06047 by duanweiping at 20220927 end */
+		/*HS03s added for DEVAL5626-463 by wangzikang at 20210729 end */
 		#ifdef HQ_FACTORY_BUILD //factory version
 		ovp_disable_old == info->ovp_disable &&
 		batt_cap_control_old == info->batt_cap_control) {
 		#else
 		ovp_disable_old == info->ovp_disable) {
 		#endif
-			chr_debug("%s:same as last one,skip set.\n", __func__);
+			#ifdef HQ_FACTORY_BUILD //factory version
+			batt_cap_control_old = info->batt_cap_control;
+			chr_err("%s:same:input_suspend=%d, ovp_disable=%d, batt_cap_control=%d\n", __func__,
+				info->input_suspend, info->ovp_disable, info->batt_cap_control);
+			#else
+			chr_err("%s:same:input_suspend=%d, ovp_disable=%d\n", __func__,
+				info->input_suspend, info->ovp_disable);
+			#endif
 			return;
 		}
-
 	#ifdef HQ_FACTORY_BUILD //factory version
 	if (info->input_suspend == true || info->ovp_disable == true ||
 		info->batt_cap_control == true) {
 	#else
 	if (info->input_suspend == true || info->ovp_disable == true) {
 	#endif
-	/*TabA7 Lite code for OT8-229 modify sw_ovp function by wenyaqi at 20201218 end*/
 		info->cmd_discharging = true;
 		charger_dev_enable(info->chg1_dev, false);
 		charger_dev_do_event(info->chg1_dev,
 			EVENT_DISCHARGE, 0);
+		/*HS03s for DEVAL5625-1125 by wenyaqi at 20210607 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
+		charger_dev_set_hiz_mode(info->chg1_dev, true);
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+		charger_dev_set_hiz_mode(info->chg1_dev, true);
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
 		charger_dev_enable_powerpath(info->chg1_dev, false);
+#endif
 	} else {
 		info->cmd_discharging = false;
 		charger_dev_enable(info->chg1_dev, true);
 		charger_dev_do_event(info->chg1_dev,
 			EVENT_RECHARGE, 0);
+#ifdef CONFIG_HQ_PROJECT_HS03S
+		charger_dev_set_hiz_mode(info->chg1_dev, false);
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+		charger_dev_set_hiz_mode(info->chg1_dev, false);
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
 		charger_dev_enable_powerpath(info->chg1_dev, true);
+#endif
+		/*HS03s for DEVAL5625-1125 by wenyaqi at 20210607 end*/
 	}
 
 	input_suspend_old = info->input_suspend;
@@ -1610,7 +2156,8 @@ static void ss_charger_check_status(struct mtk_charger *info)
 	chr_err("%s:input_suspend=%d, ovp_disable=%d\n", __func__, info->input_suspend, info->ovp_disable);
 	#endif
 }
-/*TabA7 Lite code for P210330-05709 by wenyaqi at 20210401 end*/
+/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 end */
 
 static void charger_check_status(struct mtk_charger *info)
 {
@@ -1618,14 +2165,12 @@ static void charger_check_status(struct mtk_charger *info)
 	int temperature;
 	struct battery_thermal_protection_data *thermal;
 
-	/*TabA7 Lite code for OT8-602 modify sw_ovp function by wenyaqi at 20210111 start*/
 	if (get_charger_type(info) == POWER_SUPPLY_TYPE_UNKNOWN) {
 		if (!mtk_chg_check_vbus(info)) {
 			mtk_battery_notify_check(info);
 		}
 		return;
 	}
-	/*TabA7 Lite code for OT8-602 modify sw_ovp function by wenyaqi at 20210111 end*/
 
 	temperature = info->battery_temp;
 	thermal = &info->thermal;
@@ -1729,9 +2274,10 @@ static bool charger_init_algo(struct mtk_charger *info)
 
 	alg = get_chg_alg_by_name("pd");
 	info->alg[idx] = alg;
-	if (alg == NULL)
+	if (alg == NULL) {
 		chr_err("get pd fail\n");
-	else {
+		return false;
+	} else {
 		chr_err("get pd success\n");
 		alg->config = info->config;
 		chg_alg_init_algo(alg);
@@ -1794,9 +2340,197 @@ static bool charger_init_algo(struct mtk_charger *info)
 	return true;
 }
 
+#ifdef CONFIG_HQ_PROJECT_HS03S
+/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+#ifndef HQ_FACTORY_BUILD	//ss version
+#define RETAIL_APP_DETECT_TIMER     60000
+#define SALE_CODE_STR_LEN 3
+static char sales_code_from_cmdline[SALE_CODE_STR_LEN + 1];
+
+static int __init sales_code_setup(char *str)
+{
+	strlcpy(sales_code_from_cmdline, str,
+		ARRAY_SIZE(sales_code_from_cmdline));
+
+	return 1;
+}
+__setup("androidboot.sales_code=", sales_code_setup);
+
+bool sales_code_is(char* str)
+{
+	return !strncmp(sales_code_from_cmdline, str,
+				SALE_CODE_STR_LEN + 1);
+}
+
+int sum_get_prop_from_battery(struct mtk_charger *info,
+		enum power_supply_property psp,
+		union power_supply_propval *val)
+{
+	struct power_supply *psy;
+	int rc;
+	psy = power_supply_get_by_name("battery");
+	if (!psy) {
+		return -EINVAL;
+	}
+
+	rc = power_supply_get_property(psy, psp, val);
+	return rc;
+}
+
+static void basic_retail_app(struct mtk_charger *info)
+{
+	union power_supply_propval pval = {0, };
+	int ret;
+	int retail_app_dischg_threshold = 0;
+	int retail_app_chg_threshold = 0;
+
+	if(sales_code_is("VZW") || sales_code_is("VPP")) {
+		retail_app_dischg_threshold = 35;
+		retail_app_chg_threshold = 30;
+	} else {
+		retail_app_dischg_threshold = 70;
+		retail_app_chg_threshold = 60;
+	}
+
+	ret = sum_get_prop_from_battery(info, POWER_SUPPLY_PROP_CAPACITY ,&pval);
+	if (pval.intval >= retail_app_dischg_threshold) {
+		info->input_suspend = true;
+	} else if (pval.intval < retail_app_chg_threshold) {
+		info->input_suspend = false;
+	}
+
+	chr_err("%s: sales_code:%s,dischg_thres:%d,chg_thres:%d,soc_now:%d,c:%d,input_suspend:%d\n",
+		__func__, sales_code_from_cmdline, retail_app_dischg_threshold, retail_app_chg_threshold,
+		pval.intval, info->cmd_discharging, info->input_suspend);
+}
+
+static void ss_set_batt_store_mode(struct mtk_charger *info,
+	const union power_supply_propval *val)
+{
+	int store_mode = val->intval;
+
+	if (store_mode == 1) {
+		info->batt_store_mode = true;
+		schedule_delayed_work(&info->retail_app_status_change_work, 0);
+	} else {
+		info->batt_store_mode = false;
+		cancel_delayed_work_sync(&info->retail_app_status_change_work);
+	}
+	chr_err("%s: batt_store_mode:%d\n", __func__, info->batt_store_mode);
+}
+
+static void ss_retail_app_status_change_work(struct work_struct *work)
+{
+	struct mtk_charger *info = container_of(work,
+			struct mtk_charger, retail_app_status_change_work.work);
+
+	basic_retail_app(info);
+
+	schedule_delayed_work(&info->retail_app_status_change_work, msecs_to_jiffies(RETAIL_APP_DETECT_TIMER));
+}
+#endif
+/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+#ifndef HQ_FACTORY_BUILD	//ss version
+#define RETAIL_APP_DETECT_TIMER     60000
+#define SALE_CODE_STR_LEN 3
+static char sales_code_from_cmdline[SALE_CODE_STR_LEN + 1];
+
+static int __init sales_code_setup(char *str)
+{
+	strlcpy(sales_code_from_cmdline, str,
+		ARRAY_SIZE(sales_code_from_cmdline));
+
+	return 1;
+}
+__setup("androidboot.sales_code=", sales_code_setup);
+
+bool sales_code_is(char* str)
+{
+	return !strncmp(sales_code_from_cmdline, str,
+				SALE_CODE_STR_LEN + 1);
+}
+
+int sum_get_prop_from_battery(struct mtk_charger *info,
+		enum power_supply_property psp,
+		union power_supply_propval *val)
+{
+	struct power_supply *psy;
+	int rc;
+	psy = power_supply_get_by_name("battery");
+	if (!psy) {
+		return -EINVAL;
+	}
+
+	rc = power_supply_get_property(psy, psp, val);
+	return rc;
+}
+
+static void basic_retail_app(struct mtk_charger *info)
+{
+	union power_supply_propval pval = {0, };
+	int ret;
+	int retail_app_dischg_threshold = 0;
+	int retail_app_chg_threshold = 0;
+
+	if(sales_code_is("VZW") || sales_code_is("VPP")) {
+		retail_app_dischg_threshold = 35;
+		retail_app_chg_threshold = 30;
+	} else {
+		retail_app_dischg_threshold = 70;
+		retail_app_chg_threshold = 60;
+	}
+
+	ret = sum_get_prop_from_battery(info, POWER_SUPPLY_PROP_CAPACITY ,&pval);
+	if (pval.intval >= retail_app_dischg_threshold) {
+		info->input_suspend = true;
+	} else if (pval.intval < retail_app_chg_threshold) {
+		info->input_suspend = false;
+	}
+
+	chr_err("%s: sales_code:%s,dischg_thres:%d,chg_thres:%d,soc_now:%d,c:%d,input_suspend:%d\n",
+		__func__, sales_code_from_cmdline, retail_app_dischg_threshold, retail_app_chg_threshold,
+		pval.intval, info->cmd_discharging, info->input_suspend);
+}
+
+static void ss_set_batt_store_mode(struct mtk_charger *info,
+	const union power_supply_propval *val)
+{
+	int store_mode = val->intval;
+
+	if (store_mode == 1) {
+		info->batt_store_mode = true;
+		schedule_delayed_work(&info->retail_app_status_change_work, 0);
+	} else {
+		info->batt_store_mode = false;
+		cancel_delayed_work_sync(&info->retail_app_status_change_work);
+	}
+	chr_err("%s: batt_store_mode:%d\n", __func__, info->batt_store_mode);
+}
+
+static void ss_retail_app_status_change_work(struct work_struct *work)
+{
+	struct mtk_charger *info = container_of(work,
+			struct mtk_charger, retail_app_status_change_work.work);
+
+	basic_retail_app(info);
+
+	schedule_delayed_work(&info->retail_app_status_change_work, msecs_to_jiffies(RETAIL_APP_DETECT_TIMER));
+}
+#endif
+/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+//for o8
+
 /*TabA7 Lite  code for SR-AX3565-01-109 by gaoxugang at 20201124 start*/
 #if !defined(HQ_FACTORY_BUILD)
 #define RETAIL_APP_DETECT_TIMER     60000
+extern int battery_store_mode;
 /*TabA7 Lite  code for SR-AX3565-01-187 by gaoxugang at 20201203 start*/
 #define SALE_CODE_STR_LEN 3
 static char sales_code_from_cmdline[SALE_CODE_STR_LEN + 1];
@@ -1831,15 +2565,15 @@ int sum_get_prop_from_battery(struct mtk_charger *info,
 	return rc;
 }
 /* AX3565 for SR-AX3565-01-737 add battery protect function by shixuanxuan at 2021/01/13 start */
-#if !defined(HQ_FACTORY_BUILD)
-static void hq_charging_count_work(struct work_struct *work)
+//#if !defined(HQ_FACTORY_BUILD)
+/*static void hq_charging_count_work(struct work_struct *work)
 {
 	struct mtk_charger *info = container_of(work,
 			struct mtk_charger, charging_count_work.work);
 	hq_update_charge_state(info);
 	schedule_delayed_work(&info->charging_count_work, msecs_to_jiffies(CHR_COUNT_TIME));
 }
-#endif
+#endif*/
 /* AX3565 for SR-AX3565-01-737 add battery protect function by shixuanxuan at 2021/01/13 end */
 /*TabA7 Lite code for P210330-05709 by wenyaqi at 20210401 start*/
 static void basic_retail_app(struct mtk_charger *info)
@@ -1869,6 +2603,23 @@ static void basic_retail_app(struct mtk_charger *info)
 		pval.intval, info->cmd_discharging, info->input_suspend);
 }
 
+/*TabA7 Lite code for SR-AX3565-01-109 by wenyaqi at 20210416 start*/
+static void ss_set_batt_store_mode(struct mtk_charger *info,
+	const union power_supply_propval *val)
+{
+	int store_mode = val->intval;
+
+	if (store_mode == 1) {
+		info->batt_store_mode = true;
+		schedule_delayed_work(&info->retail_app_status_change_work, 0);
+	} else {
+		info->batt_store_mode = false;
+		cancel_delayed_work_sync(&info->retail_app_status_change_work);
+	}
+	chr_err("%s: batt_store_mode:%d\n", __func__, info->batt_store_mode);
+}
+/*TabA7 Lite code for SR-AX3565-01-109 by wenyaqi at 20210416 end*/
+
 static void ss_retail_app_status_change_work(struct work_struct *work)
 {
 	struct mtk_charger *info = container_of(work,
@@ -1882,6 +2633,8 @@ static void ss_retail_app_status_change_work(struct work_struct *work)
 /*TabA7 Lite code for P210330-05709 by wenyaqi at 20210401 end*/
 /*TabA7 Lite  code for SR-AX3565-01-109 by gaoxugang at 20201124 end*/
 
+#endif
+
 static int mtk_charger_plug_out(struct mtk_charger *info)
 {
 	struct charger_data *pdata1 = &info->chg_data[CHG1_SETTING];
@@ -1893,6 +2646,54 @@ static int mtk_charger_plug_out(struct mtk_charger *info)
 	chr_err("%s\n", __func__);
 	info->chr_type = POWER_SUPPLY_TYPE_UNKNOWN;
 	info->charger_thread_polling = false;
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	#if !defined(HQ_FACTORY_BUILD)
+	/* HS03s code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 start */
+	info->vbus_rising = 0;
+	/* TabA7 Lite code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 end */
+#ifdef CONFIG_HQ_PROJECT_OT8
+    /* TabA7 Lite code for OT8-5454 by shixuanxuan at 20220404 start */
+	info->batt_full_flag = 0;
+	info->cmd_discharging = false;
+	charger_dev_enable(info->chg1_dev, true);
+	charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);
+	charger_dev_enable_powerpath(info->chg1_dev, true);
+	/* TabA7 Lite code for OT8-5454 by shixuanxuan at 20220404 end */
+/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 start */
+#ifndef HQ_FACTORY_BUILD
+	if (info->batt_full_flag == ENABLE_CHARGE) {
+		info->batt_full_flag = PLUG_OUT;
+	}
+	chr_err("mtk_charger_plug_out batt_full_flag = %d\n", info->batt_full_flag);
+#endif
+/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 end */
+#endif
+/*HS03s for AL5626TDEV-224 by liuhong at 20220921 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
+	info->batt_full_flag = 0;
+	info->cmd_discharging = false;
+	charger_dev_enable(info->chg1_dev, true);
+	charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);
+	charger_dev_enable_powerpath(info->chg1_dev, true);
+#endif
+/*HS03s for AL5626TDEV-224 by liuhong at 20220921 end*/
+/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 start */
+#ifdef CONFIG_HQ_PROJECT_HS04
+	info->batt_full_flag = 0;
+	info->cmd_discharging = false;
+	charger_dev_enable(info->chg1_dev, true);
+	charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);
+	charger_dev_enable_powerpath(info->chg1_dev, true);
+#endif
+/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 end*/
+	info->over_cap_count = 0;
+	info->cap_hold_count = 0;
+	info->recharge_count = 0;
+	info->interval_time = 0;
+	cancel_delayed_work_sync(&info->charging_count_work);
+	hq_enable_charging(info, true);
+	#endif
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
 
 	pdata1->disable_charging_count = 0;
 	pdata1->input_current_limit_by_aicl = -1;
@@ -1905,26 +2706,26 @@ static int mtk_charger_plug_out(struct mtk_charger *info)
 		chg_alg_notifier_call(alg, &notify);
 	}
 
-	/*TabA7 Lite code for OT8-106 add afc charger driver by wenyaqi at 20201210 start*/
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
 	#ifdef CONFIG_AFC_CHARGER
 	afc_set_is_enable(info, false);
 	afc_plugout_reset(info);
 	info->afc_sts = AFC_INIT;
 	#endif
-	/*TabA7 Lite code for OT8-106 add afc charger driver by wenyaqi at 20201210 end*/
-	/* AX3565 for SR-AX3565-01-737 add battery protect function by shixuanxuan at 2021/01/13 start */
-	#if !defined(HQ_FACTORY_BUILD)
-	info->chr_count = 0;
-	info->en_batt_protect = DISABLE_BATT_PROTECT;
-	#endif
-	/* AX3565 for SR-AX3565-01-737 add battery protect function by shixuanxuan at 2021/01/13 end */
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
 	charger_dev_set_input_current(info->chg1_dev, 100000);
 	charger_dev_set_mivr(info->chg1_dev, info->data.min_charger_voltage);
 	charger_dev_plug_out(info->chg1_dev);
+	/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 start */
+	#ifdef CONFIG_BATT_TIME_TO_FULL
+	gxy_ttf_work_cancel();
+	#endif
+	/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 end */
 
 	return 0;
 }
 
+int thub_chr_type = 0;
 static int mtk_charger_plug_in(struct mtk_charger *info,
 				int chr_type)
 {
@@ -1936,14 +2737,14 @@ static int mtk_charger_plug_in(struct mtk_charger *info,
 		__func__);
 
 	info->chr_type = chr_type;
+	thub_chr_type = info->chr_type;
 	info->charger_thread_polling = true;
-
 	info->can_charging = true;
 	//info->enable_dynamic_cv = true;
 	info->safety_timeout = false;
 	info->vbusov_stat = false;
 
-	chr_err("mtk_is_charger_on plug in, type:%d\n", chr_type);
+	chr_err("mtk_is_charger_on plug in, zhi type:%d, info->chr_type = %d\n", chr_type, info->chr_type);
 
 	notify.evt = EVT_PLUG_IN;
 	notify.value = 0;
@@ -1953,7 +2754,17 @@ static int mtk_charger_plug_in(struct mtk_charger *info,
 	}
 
 	charger_dev_plug_in(info->chg1_dev);
-	/*TabA7 Lite code for OT8-106 add afc charger driver by wenyaqi at 20201210 start*/
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	#if !defined(HQ_FACTORY_BUILD)
+	/* HS03s code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 start */
+	info->vbus_rising = 1;
+  	info->base_time = 0;
+	/* HS03s code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 end */
+	info->interval_time = 0;
+	schedule_delayed_work(&info->charging_count_work, 0);
+	#endif
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
 	#ifdef CONFIG_AFC_CHARGER
 	if (info->chr_type == POWER_SUPPLY_TYPE_USB_DCP &&
 		info->pd_type != MTK_PD_CONNECT_PE_READY_SNK &&      //PD2.0
@@ -1961,7 +2772,17 @@ static int mtk_charger_plug_in(struct mtk_charger *info,
 		info->pd_type != MTK_PD_CONNECT_PE_READY_SNK_APDO)   //PPS
 		afc_set_is_enable(info, true);
 	#endif
-	/*TabA7 Lite code for OT8-106 add afc charger driver by wenyaqi at 20201210 end*/
+	/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 start*/
+	#ifdef CONFIG_HQ_PROJECT_HS04
+	gxy_ttf_work_start();
+	#endif
+	/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 end*/
+	/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 start */
+	#ifdef CONFIG_BATT_TIME_TO_FULL
+	gxy_ttf_work_start();
+	#endif
+	/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 end */
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
 
 	return 0;
 }
@@ -1975,14 +2796,39 @@ static bool mtk_is_charger_on(struct mtk_charger *info)
 	if (chr_type == POWER_SUPPLY_TYPE_UNKNOWN) {
 		if (info->chr_type != POWER_SUPPLY_TYPE_UNKNOWN) {
 			mtk_charger_plug_out(info);
-			/*TabA7 Lite  code for SR-AX3565-01-109 by gaoxugang at 20201124 start*/
-			#if !defined(HQ_FACTORY_BUILD)
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    			/* modify code for O6 */
+			/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+			#ifndef HQ_FACTORY_BUILD	//ss version
 			if (info->batt_store_mode) {
 				__pm_relax(info->charger_wakelock_app);
 				cancel_delayed_work_sync(&info->retail_app_status_change_work);
 			}
 			#endif
+			/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+    			/* modify code for O6 */
+			/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+			#ifndef HQ_FACTORY_BUILD	//ss version
+			if (info->batt_store_mode) {
+				__pm_relax(info->charger_wakelock_app);
+				cancel_delayed_work_sync(&info->retail_app_status_change_work);
+			}
+			#endif
+			/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+    			/* modify code for O8 */
+			/*TabA7 Lite  code for SR-AX3565-01-109 by gaoxugang at 20201124 start*/
+			#if !defined(HQ_FACTORY_BUILD)
+			if (battery_store_mode) {
+				__pm_relax(info->charger_wakelock_app);
+				cancel_delayed_work_sync(&info->retail_app_status_change_work);
+			}
+#endif
 			/*TabA7 Lite  code for SR-AX3565-01-109 by gaoxugang at 20201124 end*/
+			#endif
 			mutex_lock(&info->cable_out_lock);
 			info->cable_out_cnt = 0;
 			mutex_unlock(&info->cable_out_lock);
@@ -1990,8 +2836,10 @@ static bool mtk_is_charger_on(struct mtk_charger *info)
 	} else {
 		if (info->chr_type == POWER_SUPPLY_TYPE_UNKNOWN)
 			mtk_charger_plug_in(info, chr_type);
-		else
+		else {
 			info->chr_type = chr_type;
+			thub_chr_type = info->chr_type;
+		}
 
 		if (info->cable_out_cnt > 0) {
 			mtk_charger_plug_out(info);
@@ -2000,14 +2848,39 @@ static bool mtk_is_charger_on(struct mtk_charger *info)
 			info->cable_out_cnt = 0;
 			mutex_unlock(&info->cable_out_lock);
 		}
-		/*TabA7 Lite  code for SR-AX3565-01-109 by gaoxugang at 20201124 start*/
-		#if !defined(HQ_FACTORY_BUILD)
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    	/* modify code for O6 */
+		/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+		#ifndef HQ_FACTORY_BUILD	//ss version
 		if (info->batt_store_mode) {
 			__pm_stay_awake(info->charger_wakelock_app);
 			schedule_delayed_work(&info->retail_app_status_change_work, 0);
 		}
 		#endif
+		/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+    	/* modify code for O6 */
+		/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+		#ifndef HQ_FACTORY_BUILD	//ss version
+		if (info->batt_store_mode) {
+			__pm_stay_awake(info->charger_wakelock_app);
+			schedule_delayed_work(&info->retail_app_status_change_work, 0);
+		}
+		#endif
+		/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+    	/* modify code for O8 */
+		/*TabA7 Lite  code for SR-AX3565-01-109 by gaoxugang at 20201124 start*/
+		#if !defined(HQ_FACTORY_BUILD)
+		if (battery_store_mode) {
+			__pm_stay_awake(info->charger_wakelock_app);
+			schedule_delayed_work(&info->retail_app_status_change_work, 0);
+		}
+		#endif
 		/*TabA7 Lite  code for SR-AX3565-01-109 by gaoxugang at 20201124 end*/
+#endif
 	}
 
 	if (chr_type == POWER_SUPPLY_TYPE_UNKNOWN)
@@ -2015,6 +2888,78 @@ static bool mtk_is_charger_on(struct mtk_charger *info)
 
 	return true;
 }
+
+/*HS03s for P210730-04606 by wangzikang at 20210816 start*/
+#ifndef HQ_FACTORY_BUILD	//ss version
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    /* modify code for O6 */
+static void offmode_delay_work(struct work_struct *work)
+{
+	struct mtk_charger *info = container_of(work,
+			struct mtk_charger, poweroff_dwork.work);
+	int vbus = 0;
+
+	chr_err("%s: ENTER\n", __func__);
+	vbus = get_vbus(info);
+	if (vbus >= 0 && vbus < 2500) {
+		chr_err("Recheck:Unplug Charger/USB in KPOC mode, vbus=%d, shutdown\n", vbus);
+		kernel_power_off();
+	} else {
+		chr_err("Recheck:Vbus recovery.\n");
+	}
+}
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+    /* modify code for O6 */
+static void offmode_delay_work(struct work_struct *work)
+{
+	struct mtk_charger *info = container_of(work,
+			struct mtk_charger, poweroff_dwork.work);
+	int vbus = 0;
+
+	chr_err("%s: ENTER\n", __func__);
+	vbus = get_vbus(info);
+	if (vbus >= 0 && vbus < 2500) {
+		chr_err("Recheck:Unplug Charger/USB in KPOC mode, vbus=%d, shutdown\n", vbus);
+		kernel_power_off();
+	} else {
+		chr_err("Recheck:Vbus recovery.\n");
+	}
+}
+#endif
+/*HS03s for P210730-04606 by wangzikang at 20210816 start*/
+
+#define RECHECK_VBUS_TIME_MS 3000
+static void kpoc_power_off_check(struct mtk_charger *info)
+{
+	unsigned int boot_mode = info->bootmode;
+	int vbus = 0;
+
+	/* 8 = KERNEL_POWER_OFF_CHARGING_BOOT */
+	/* 9 = LOW_POWER_OFF_CHARGING_BOOT */
+	if (boot_mode == 8 || boot_mode == 9) {
+		vbus = get_vbus(info);
+		if (vbus >= 0 && vbus < 2500 && !mtk_is_charger_on(info) && !info->pd_reset) {
+#ifdef CONFIG_HQ_PROJECT_HS03S
+			/* modify code for O6 */
+			chr_err("Unplug Charger/USB in KPOC mode, vbus=%d, schedule the power off delay work\n", vbus);
+			schedule_delayed_work(&info->poweroff_dwork, msecs_to_jiffies(RECHECK_VBUS_TIME_MS));
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+			/* modify code for O6 */
+			chr_err("Unplug Charger/USB in KPOC mode, vbus=%d, schedule the power off delay work\n", vbus);
+			schedule_delayed_work(&info->poweroff_dwork, msecs_to_jiffies(RECHECK_VBUS_TIME_MS));
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+			/* modify code for O8 */
+			chr_err("Unplug Charger/USB in KPOC mode, vbus=%d, shutdown\n", vbus);
+			kernel_power_off();
+#endif
+		}
+	}
+}
+#endif
+/*HS03s for P210730-04606 by wangzikang at 20210816 end*/
 
 static char *dump_charger_type(int type)
 {
@@ -2034,14 +2979,13 @@ static char *dump_charger_type(int type)
 	}
 }
 
-/*TabA7 Lite code for SR-AX3565-01-138 by zhaoxiangxiang at 20201203 start*/
 static int touchscreen_usb_plug_status = 0;
 int mtk_touch_get_usb_status(void)
 {
 	return touchscreen_usb_plug_status;
 }
 EXPORT_SYMBOL(mtk_touch_get_usb_status);
-/*TabA7 Lite code for SR-AX3565-01-138 by zhaoxiangxiang at 20201203 end*/
+
 int ss_charger_status = 0;
 EXPORT_SYMBOL(ss_charger_status);
 static int charger_routine_thread(void *arg)
@@ -2084,44 +3028,58 @@ static int charger_routine_thread(void *arg)
 			info->pd_type);
 
 		is_charger_on = mtk_is_charger_on(info);
-/*TabA7 Lite code for SR-AX3565-01-138 by zhaoxiangxiang at 20201203 start*/
 		touchscreen_usb_plug_status = is_charger_on;
-/*TabA7 Lite code for SR-AX3565-01-138 by zhaoxiangxiang at 20201203 end*/
+
 		if (info->charger_thread_polling == true)
 			mtk_charger_start_timer(info);
 
 		check_battery_exist(info);
 		check_dynamic_mivr(info);
-		/*TabA7 Lite code for OT8-602 modify sw_ovp function by wenyaqi at 20210111 start*/
 		info->ss_vchr = get_vbus(info) * 1000; /* uV */
-		/*TabA7 Lite code for OT8-602 modify sw_ovp function by wenyaqi at 20210111 end*/
 		charger_check_status(info);
-		/*TabA7 Lite code for OT8-384 fix confliction between input_suspend and sw_ovp by wenyaqi at 20201224 start*/
+		/*HS03s for P210730-04606 by wangzikang at 20210816 start*/
+		#ifndef HQ_FACTORY_BUILD	//ss version
+		kpoc_power_off_check(info);
+		#endif
+		/*HS03s for P210730-04606 by wangzikang at 20210816 end*/
+/* A03s code for SR-AL5625-01-35 by wenyaqi at 20210420 start */
 		ss_charger_check_status(info);
-		/*TabA7 Lite code for OT8-384 fix confliction between input_suspend and sw_ovp by wenyaqi at 20201224 end*/
-
-		if (is_disable_charger(info) == false &&
-			is_charger_on == true &&
-			info->can_charging == true) {
-			if (info->algo.do_algorithm)
-				info->algo.do_algorithm(info);
-		} else
-			chr_debug("disable charging %d %d %d\n",
-			is_disable_charger(info),
-			is_charger_on,
-			info->can_charging);
-
+/* A03s code for SR-AL5625-01-35 by wenyaqi at 20210420 end */
+		/*HS03s for P210730-04606 by wangzikang at 20210816 end*/
 		if (info->cmd_discharging == true)
 			ss_charger_status = 1;
 		else
 			ss_charger_status = 0;
+		/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 end */
+/* TabA7 Lite code for P220922-06047 by duanweiping at 20220927 start */
+		if (is_disable_charger(info) == false &&
+			is_charger_on == true &&
+			info->can_charging == true &&
+			info->input_suspend == false) {
+			if (info->algo.do_algorithm)
+				info->algo.do_algorithm(info);
+/* TabA7 Lite code for P220922-06047 by duanweiping at 20220927 end */
+		} else
+			chr_err("disable charging %d %d %d\n",
+			is_disable_charger(info),
+			is_charger_on,
+			info->can_charging);
 
 		spin_lock_irqsave(&info->slock, flags);
 		__pm_relax(info->charger_wakelock);
 		spin_unlock_irqrestore(&info->slock, flags);
-		chr_debug("%s end , %d\n",
+		chr_debug("%s zhi end , %d\n",
 			__func__, info->charger_thread_timeout);
 		mutex_unlock(&info->charger_lock);
+#ifdef CONFIG_HQ_PROJECT_HS03S
+		msleep(5000);
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+	/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 start*/
+		gxy_ttf_work_start();
+	/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 end*/
+		msleep(50);
+#endif
 	}
 
 	return 0;
@@ -2216,6 +3174,11 @@ static int mtk_charger_setup_files(struct platform_device *pdev)
 	ret = device_create_file(&(pdev->dev), &dev_attr_ADC_Charger_Voltage);
 	if (ret)
 		goto _out;
+
+	ret = device_create_file(&(pdev->dev), &dev_attr_Charger_Config);
+	if (ret)
+		goto _out;
+
 	ret = device_create_file(&(pdev->dev), &dev_attr_input_current);
 	if (ret)
 		goto _out;
@@ -2290,6 +3253,747 @@ end:
 	chr_err("%s: atm_enabled = %d\n", __func__, info->atm_enabled);
 }
 
+#ifdef CONFIG_HQ_PROJECT_HS03S
+static int psy_charger_property_is_writeable(struct power_supply *psy,
+					       enum power_supply_property psp)
+{
+	switch (psp) {
+	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
+		return 1;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
+		return 1;
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+		return 1;
+	/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 start */
+	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
+	/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 end */
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
+	#ifdef CONFIG_AFC_CHARGER
+	case POWER_SUPPLY_PROP_AFC_RESULT:
+	case POWER_SUPPLY_PROP_HV_DISABLE:
+	#endif
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 start*/
+	case POWER_SUPPLY_PROP_BATTERY_CYCLE:
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 end*/
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 start*/
+	case POWER_SUPPLY_PROP_BATT_SLATE_MODE:
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 end*/
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	case POWER_SUPPLY_PROP_BATT_PROTECT_ENABLE:
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+	case POWER_SUPPLY_PROP_STORE_MODE:
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 start*/
+	#ifdef HQ_FACTORY_BUILD //factory version
+	case POWER_SUPPLY_PROP_BATT_CAP_CONTROL:
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 end*/
+	/* hs04 code for P221123-05653 by shixuanxuan at 20221201 start */
+	#ifndef HQ_FACTORY_BUILD
+	case POWER_SUPPLY_PROP_BATT_FULL_CAPACITY:
+	#endif
+	/* hs04 code for P221123-05653 by shixuanxuan at 20221201 end */
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+static enum power_supply_property charger_psy_properties[] = {
+	POWER_SUPPLY_PROP_ONLINE,
+	POWER_SUPPLY_PROP_PRESENT,
+	POWER_SUPPLY_PROP_VOLTAGE_MAX,
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+	POWER_SUPPLY_PROP_TEMP,
+	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX,
+	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
+	/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 start */
+	POWER_SUPPLY_PROP_INPUT_SUSPEND,
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
+	#ifdef CONFIG_AFC_CHARGER
+	POWER_SUPPLY_PROP_HV_CHARGER_STATUS,
+	POWER_SUPPLY_PROP_AFC_RESULT,
+	POWER_SUPPLY_PROP_HV_DISABLE,
+	#endif
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 start*/
+	POWER_SUPPLY_PROP_BATTERY_CYCLE,
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 end*/
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 start*/
+	POWER_SUPPLY_PROP_BATT_SLATE_MODE,
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 end*/
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	POWER_SUPPLY_PROP_BATT_PROTECT,
+	POWER_SUPPLY_PROP_BATT_PROTECT_ENABLE,
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+	POWER_SUPPLY_PROP_STORE_MODE,
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 start*/
+	#ifdef HQ_FACTORY_BUILD //factory version
+	POWER_SUPPLY_PROP_BATT_CAP_CONTROL,
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 end*/
+};
+
+static int psy_charger_get_property(struct power_supply *psy,
+	enum power_supply_property psp, union power_supply_propval *val)
+{
+	struct mtk_charger *info;
+	struct charger_device *chg;
+
+	info = (struct mtk_charger *)power_supply_get_drvdata(psy);
+
+	chr_err("%s psp:%d\n",
+		__func__, psp);
+
+
+	if (info->psy1 != NULL &&
+		info->psy1 == psy)
+		chg = info->chg1_dev;
+	else if (info->psy2 != NULL &&
+		info->psy2 == psy)
+		chg = info->chg2_dev;
+	else {
+		chr_err("%s fail\n", __func__);
+		return 0;
+	}
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_ONLINE:
+		val->intval = is_charger_exist(info);
+		break;
+	case POWER_SUPPLY_PROP_PRESENT:
+		if (chg != NULL)
+			val->intval = true;
+		else
+			val->intval = false;
+		break;
+	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
+		val->intval = info->enable_hv_charging;
+		break;
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		val->intval = get_vbus(info);
+		break;
+	case POWER_SUPPLY_PROP_TEMP:
+		if (chg == info->chg1_dev)
+			val->intval =
+				info->chg_data[CHG1_SETTING].junction_temp_max;
+		else if (chg == info->chg2_dev)
+			val->intval =
+				info->chg_data[CHG2_SETTING].junction_temp_max;
+		else
+			val->intval = -127;
+		break;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
+		val->intval = get_charger_charging_current(info, chg);
+		break;
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+		val->intval = get_charger_input_current(info, chg);
+		break;
+	case POWER_SUPPLY_PROP_USB_TYPE:
+		val->intval = info->chr_type;
+		break;
+	case POWER_SUPPLY_PROP_VOLTAGE_BOOT:
+		val->intval = get_charger_zcv(info, chg);
+		break;
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 start*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	case POWER_SUPPLY_PROP_BATT_SLATE_MODE:
+	#endif
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 end*/
+	/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 start */
+	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
+		val->intval = info->input_suspend;
+		break;
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
+	#ifdef CONFIG_AFC_CHARGER
+	case POWER_SUPPLY_PROP_HV_CHARGER_STATUS:
+		if (info->hv_disable)
+			val->intval = 0;
+		else {
+			if(ss_fast_charger_status(info))
+				val->intval = 1;
+			else
+				val->intval = 0;
+		}
+		break;
+	case POWER_SUPPLY_PROP_AFC_RESULT:
+		if (info->afc_sts >= AFC_5V)
+			val->intval = 1;
+		else
+			val->intval = 0;
+		break;
+	case POWER_SUPPLY_PROP_HV_DISABLE:
+		val->intval = info->hv_disable;
+		break;
+	#endif
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 start*/
+	case POWER_SUPPLY_PROP_BATTERY_CYCLE:
+		val->intval = info->data.ss_batt_cycle;
+		break;
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 end*/
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	#if !defined(HQ_FACTORY_BUILD)
+	case POWER_SUPPLY_PROP_BATT_PROTECT:
+		val->intval = info->en_batt_protect;
+		break;
+	case POWER_SUPPLY_PROP_BATT_PROTECT_ENABLE:
+		val->intval = info->batt_protect_flag;
+		break;
+	#endif
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+	case POWER_SUPPLY_PROP_STORE_MODE:
+		val->intval = info->batt_store_mode;
+		break;
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 start*/
+	#ifdef HQ_FACTORY_BUILD //factory version
+	case POWER_SUPPLY_PROP_BATT_CAP_CONTROL:
+		val->intval = info->batt_cap_control;
+		break;
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 end*/
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int psy_charger_set_property(struct power_supply *psy,
+			enum power_supply_property psp,
+			const union power_supply_propval *val)
+{
+	struct mtk_charger *info;
+	int idx;
+/*hs04 code for P221123-05653 by shixuanxuan at 20221224 start*/
+#ifndef HQ_FACTORY_BUILD
+	struct power_supply *bat_psy;
+
+	bat_psy = power_supply_get_by_name("battery");
+	if (bat_psy == NULL) {
+		chr_err("%s: get battery psy failed\n", __func__);
+	}
+#endif
+/*hs04 code for P221123-05653 by shixuanxuan at 20221224 end*/
+
+	chr_err("%s: prop:%d %d\n", __func__, psp, val->intval);
+
+	info = (struct mtk_charger *)power_supply_get_drvdata(psy);
+
+	if (info->psy1 != NULL &&
+		info->psy1 == psy)
+		idx = CHG1_SETTING;
+	else if (info->psy2 != NULL &&
+		info->psy2 == psy)
+		idx = CHG2_SETTING;
+	else {
+		chr_err("%s fail\n", __func__);
+		return 0;
+	}
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
+		if (val->intval > 0)
+			info->enable_hv_charging = true;
+		else
+			info->enable_hv_charging = false;
+		break;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
+		info->chg_data[idx].thermal_charging_current_limit =
+			val->intval;
+		break;
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+		info->chg_data[idx].thermal_input_current_limit =
+			val->intval;
+		break;
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 start*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	case POWER_SUPPLY_PROP_BATT_SLATE_MODE:
+	#endif
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 end*/
+	/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 start */
+	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
+		if (val->intval)
+			info->input_suspend = true;
+		else
+			info->input_suspend = false;
+		break;
+	/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 end */
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
+	#ifdef CONFIG_AFC_CHARGER
+	case POWER_SUPPLY_PROP_AFC_RESULT:
+		is_afc_result(info, val->intval);
+		break;
+	case POWER_SUPPLY_PROP_HV_DISABLE:
+		info->hv_disable = val->intval;
+		break;
+	#endif
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 start*/
+	case POWER_SUPPLY_PROP_BATTERY_CYCLE:
+		info->data.ss_batt_cycle = val->intval;
+		break;
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 end*/
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	#if !defined(HQ_FACTORY_BUILD)
+	case POWER_SUPPLY_PROP_BATT_PROTECT_ENABLE:
+		info->batt_protect_flag = val->intval;
+		break;
+	#endif
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+	case POWER_SUPPLY_PROP_STORE_MODE:
+		ss_set_batt_store_mode(info, val);
+		break;
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 start*/
+	#ifdef HQ_FACTORY_BUILD //factory version
+	case POWER_SUPPLY_PROP_BATT_CAP_CONTROL:
+		if (val->intval)
+			info->batt_cap_control = true;
+		else
+			info->batt_cap_control = false;
+		break;
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 end*/
+	/* hs04 code for P221123-05653 by shixuanxuan at 20221201 start */
+	#ifndef HQ_FACTORY_BUILD
+	case POWER_SUPPLY_PROP_BATT_FULL_CAPACITY:
+		ss_charger_check_status(info);
+		/*hs04 code for P221123-05653 by shixuanxuan at 20221224 start*/
+		if (bat_psy) {
+			pr_err("%s: battery psy changed\n",__func__);
+			power_supply_changed(bat_psy);
+		}
+		/*hs04 code for P221123-05653 by shixuanxuan at 20221224 end*/
+		break;
+	#endif
+	/* hs04 code for P221123-05653 by shixuanxuan at 20221201 end */
+	default:
+		return -EINVAL;
+	}
+	_wake_up_charger(info);
+
+	return 0;
+}
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+static int psy_charger_property_is_writeable(struct power_supply *psy,
+					       enum power_supply_property psp)
+{
+	switch (psp) {
+	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
+		return 1;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
+		return 1;
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+		return 1;
+	/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 start */
+	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
+	/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 end */
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
+	#ifdef CONFIG_AFC_CHARGER
+	case POWER_SUPPLY_PROP_AFC_RESULT:
+	case POWER_SUPPLY_PROP_HV_DISABLE:
+	#endif
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 start*/
+	case POWER_SUPPLY_PROP_BATTERY_CYCLE:
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 end*/
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 start*/
+	case POWER_SUPPLY_PROP_BATT_SLATE_MODE:
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 end*/
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	case POWER_SUPPLY_PROP_BATT_PROTECT_ENABLE:
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+	case POWER_SUPPLY_PROP_STORE_MODE:
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 start*/
+	#ifdef HQ_FACTORY_BUILD //factory version
+	case POWER_SUPPLY_PROP_BATT_CAP_CONTROL:
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 end*/
+	/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 start */
+	case POWER_SUPPLY_PROP_SHIPMODE:
+	/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 end*/
+	/* hs04 code for P221123-05653 by shixuanxuan at 20221201 start */
+	#ifndef HQ_FACTORY_BUILD
+	case POWER_SUPPLY_PROP_BATT_FULL_CAPACITY:
+	#endif
+	/* hs04 code for P221123-05653 by shixuanxuan at 20221201 end */
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+static enum power_supply_property charger_psy_properties[] = {
+	POWER_SUPPLY_PROP_ONLINE,
+	POWER_SUPPLY_PROP_PRESENT,
+	POWER_SUPPLY_PROP_VOLTAGE_MAX,
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+	POWER_SUPPLY_PROP_TEMP,
+	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX,
+	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
+	/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 start */
+	POWER_SUPPLY_PROP_INPUT_SUSPEND,
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
+	#ifdef CONFIG_AFC_CHARGER
+	POWER_SUPPLY_PROP_HV_CHARGER_STATUS,
+	POWER_SUPPLY_PROP_AFC_RESULT,
+	POWER_SUPPLY_PROP_HV_DISABLE,
+	#endif
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 start*/
+	POWER_SUPPLY_PROP_BATTERY_CYCLE,
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 end*/
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 start*/
+	POWER_SUPPLY_PROP_BATT_SLATE_MODE,
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 end*/
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	POWER_SUPPLY_PROP_BATT_PROTECT,
+	POWER_SUPPLY_PROP_BATT_PROTECT_ENABLE,
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+	POWER_SUPPLY_PROP_STORE_MODE,
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 start*/
+	#ifdef HQ_FACTORY_BUILD //factory version
+	POWER_SUPPLY_PROP_BATT_CAP_CONTROL,
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 end*/
+	/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 start */
+	POWER_SUPPLY_PROP_SHIPMODE,
+	POWER_SUPPLY_PROP_SHIPMODE_REG,
+	/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 end*/
+};
+
+static int psy_charger_get_property(struct power_supply *psy,
+	enum power_supply_property psp, union power_supply_propval *val)
+{
+	struct mtk_charger *info;
+	struct charger_device *chg;
+
+	info = (struct mtk_charger *)power_supply_get_drvdata(psy);
+
+	chr_err("%s psp:%d\n",
+		__func__, psp);
+
+
+	if (info->psy1 != NULL &&
+		info->psy1 == psy)
+		chg = info->chg1_dev;
+	else if (info->psy2 != NULL &&
+		info->psy2 == psy)
+		chg = info->chg2_dev;
+	else {
+		chr_err("%s fail\n", __func__);
+		return 0;
+	}
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_ONLINE:
+		val->intval = is_charger_exist(info);
+		break;
+	case POWER_SUPPLY_PROP_PRESENT:
+		if (chg != NULL)
+			val->intval = true;
+		else
+			val->intval = false;
+		break;
+	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
+		val->intval = info->enable_hv_charging;
+		break;
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		val->intval = get_vbus(info);
+		break;
+	case POWER_SUPPLY_PROP_TEMP:
+		if (chg == info->chg1_dev)
+			val->intval =
+				info->chg_data[CHG1_SETTING].junction_temp_max;
+		else if (chg == info->chg2_dev)
+			val->intval =
+				info->chg_data[CHG2_SETTING].junction_temp_max;
+		else
+			val->intval = -127;
+		break;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
+		val->intval = get_charger_charging_current(info, chg);
+		break;
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+		val->intval = get_charger_input_current(info, chg);
+		break;
+	case POWER_SUPPLY_PROP_USB_TYPE:
+		val->intval = info->chr_type;
+		break;
+	case POWER_SUPPLY_PROP_VOLTAGE_BOOT:
+		val->intval = get_charger_zcv(info, chg);
+		break;
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 start*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	case POWER_SUPPLY_PROP_BATT_SLATE_MODE:
+	/* HS04_U/HS14_U/TabA7 Lite U for P231128-06029 by liufurong at 20231204 start */
+		val->intval =  info->batt_slate_mode;
+		break;
+	/* HS04_U/HS14_U/TabA7 Lite U for P231128-06029 by liufurong at 20231204 end */
+	#endif
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 end*/
+	/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 start */
+	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
+		val->intval = info->input_suspend;
+		break;
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
+	#ifdef CONFIG_AFC_CHARGER
+	case POWER_SUPPLY_PROP_HV_CHARGER_STATUS:
+		if (info->hv_disable)
+			val->intval = 0;
+		else {
+			if(ss_fast_charger_status(info))
+				val->intval = 1;
+			else
+				val->intval = 0;
+		}
+		break;
+	case POWER_SUPPLY_PROP_AFC_RESULT:
+		if (info->afc_sts >= AFC_5V)
+			val->intval = 1;
+		else
+			val->intval = 0;
+		break;
+	case POWER_SUPPLY_PROP_HV_DISABLE:
+		val->intval = info->hv_disable;
+		break;
+	#endif
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 start*/
+	case POWER_SUPPLY_PROP_BATTERY_CYCLE:
+		val->intval = info->data.ss_batt_cycle;
+		break;
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 end*/
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	#if !defined(HQ_FACTORY_BUILD)
+	case POWER_SUPPLY_PROP_BATT_PROTECT:
+		val->intval = info->en_batt_protect;
+		break;
+	case POWER_SUPPLY_PROP_BATT_PROTECT_ENABLE:
+		val->intval = info->batt_protect_flag;
+		break;
+	#endif
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+	case POWER_SUPPLY_PROP_STORE_MODE:
+		val->intval = info->batt_store_mode;
+		break;
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 start*/
+	#ifdef HQ_FACTORY_BUILD //factory version
+	case POWER_SUPPLY_PROP_BATT_CAP_CONTROL:
+		val->intval = info->batt_cap_control;
+		break;
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 end*/
+	/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 start */
+	case POWER_SUPPLY_PROP_SHIPMODE:
+		val->intval = charger_dev_get_shipmode(info->chg1_dev);
+		pr_err("get ship mode reg = %d\n", val->intval);
+		break;
+	case POWER_SUPPLY_PROP_SHIPMODE_REG:
+		val->intval = charger_dev_get_shipmode(info->chg1_dev);
+		pr_err("get ship mode reg = %d\n", val->intval);
+		break;
+	/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 end*/
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 start */
+static void set_shipmode(struct mtk_charger *info)
+{
+	int ret = 0;
+	int i = 0;
+	int num = 3;
+
+	do {
+		charger_dev_set_shipmode(info->chg1_dev, true);
+		msleep(100);
+		ret = charger_dev_get_shipmode(info->chg1_dev);
+	} while (i++ < num && !ret);
+
+	if (!ret) {
+		pr_err("Set shipmode Fail!\n");
+	}
+}
+/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 end */
+int psy_charger_set_property(struct power_supply *psy,
+			enum power_supply_property psp,
+			const union power_supply_propval *val)
+{
+	struct mtk_charger *info;
+	int idx;
+/*hs04 code for P221123-05653 by shixuanxuan at 20221224 start*/
+#ifndef HQ_FACTORY_BUILD
+	struct power_supply *bat_psy;
+
+	bat_psy = power_supply_get_by_name("battery");
+	if (bat_psy == NULL) {
+		chr_err("%s: get battery psy failed\n", __func__);
+	}
+#endif
+/*hs04 code for P221123-05653 by shixuanxuan at 20221224 end*/
+
+	chr_err("%s: prop:%d %d\n", __func__, psp, val->intval);
+
+	info = (struct mtk_charger *)power_supply_get_drvdata(psy);
+
+	if (info->psy1 != NULL &&
+		info->psy1 == psy)
+		idx = CHG1_SETTING;
+	else if (info->psy2 != NULL &&
+		info->psy2 == psy)
+		idx = CHG2_SETTING;
+	else {
+		chr_err("%s fail\n", __func__);
+		return 0;
+	}
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
+		if (val->intval > 0)
+			info->enable_hv_charging = true;
+		else
+			info->enable_hv_charging = false;
+		break;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
+		info->chg_data[idx].thermal_charging_current_limit =
+			val->intval;
+		break;
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+		info->chg_data[idx].thermal_input_current_limit =
+			val->intval;
+		break;
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 start*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	case POWER_SUPPLY_PROP_BATT_SLATE_MODE:
+	/* HS04_U/HS14_U/TabA7 Lite U for P231128-06029 by liufurong at 20231204 start */
+		if (val->intval == SEC_SLATE_OFF) {
+			info->input_suspend = false;
+		} else if (val->intval == SEC_SLATE_MODE) {
+			info->input_suspend = true;
+		} else if (val->intval == SEC_SMART_SWITCH_SLATE) {
+			chr_err("%s:  dont suppot this slate mode %d\n", __func__, val->intval);
+		} else if (val->intval == SEC_SMART_SWITCH_SRC) {
+			chr_err("%s:  dont suppot this slate mode %d\n", __func__, val->intval);
+		}
+		info->batt_slate_mode = val->intval;
+		chr_err("%s:  set slate mode %d\n", __func__, val->intval);
+		break;
+	/* HS04_U/HS14_U/TabA7 Lite U for P231128-06029 by liufurong at 20231204 end */
+	#endif
+	/*HS03s for SR-AL5625-01-276 by wenyaqi at 20210426 end*/
+	/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 start */
+	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
+		if (val->intval)
+			info->input_suspend = true;
+		else
+			info->input_suspend = false;
+		break;
+	/* HS03s code for SR-AL5625-01-35 by wenyaqi at 20210420 end */
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
+	#ifdef CONFIG_AFC_CHARGER
+	case POWER_SUPPLY_PROP_AFC_RESULT:
+		is_afc_result(info, val->intval);
+		break;
+	case POWER_SUPPLY_PROP_HV_DISABLE:
+		info->hv_disable = val->intval;
+		break;
+	#endif
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 start*/
+	case POWER_SUPPLY_PROP_BATTERY_CYCLE:
+		info->data.ss_batt_cycle = val->intval;
+		break;
+	/*HS03s for SR-AL5625-01-293 by wenyaqi at 20210426 end*/
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	#if !defined(HQ_FACTORY_BUILD)
+	case POWER_SUPPLY_PROP_BATT_PROTECT_ENABLE:
+		info->batt_protect_flag = val->intval;
+		break;
+	#endif
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+	case POWER_SUPPLY_PROP_STORE_MODE:
+		ss_set_batt_store_mode(info, val);
+		break;
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 start*/
+	#ifdef HQ_FACTORY_BUILD //factory version
+	case POWER_SUPPLY_PROP_BATT_CAP_CONTROL:
+		if (val->intval)
+			info->batt_cap_control = true;
+		else
+			info->batt_cap_control = false;
+		break;
+	#endif
+	/*HS03s for SR-AL5625-01-272 by wenyaqi at 20210427 end*/
+	/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 start */
+	case POWER_SUPPLY_PROP_SHIPMODE:
+		if (val->intval) {
+			set_shipmode(info);
+		}
+		pr_err("%s: enable shipmode val = %d\n",__func__, val->intval);
+		break;
+	/* HS04_T for DEAL6398A-1879 by shixuanxuan at 20221012 end*/
+	/* hs04 code for P221123-05653 by shixuanxuan at 20221201 start */
+	#ifndef HQ_FACTORY_BUILD
+	case POWER_SUPPLY_PROP_BATT_FULL_CAPACITY:
+		ss_charger_check_status(info);
+		/*hs04 code for P221123-05653 by shixuanxuan at 20221224 start*/
+		if (bat_psy) {
+			pr_err("%s: battery psy changed\n",__func__);
+			power_supply_changed(bat_psy);
+		}
+		/*hs04 code for P221123-05653 by shixuanxuan at 20221224 end*/
+		break;
+	#endif
+	/* hs04 code for P221123-05653 by shixuanxuan at 20221201 end */
+	default:
+		return -EINVAL;
+	}
+	_wake_up_charger(info);
+
+	return 0;
+}
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+//for 08
+/* HS14_U/TabA7 Lite U for AL6528AU-249/AX3565AU-309 by liufurong at 20231212 start */
+extern void pd_dpm_send_source_caps_switch(int cur);
+/* HS14_U/TabA7 Lite U for AL6528AU-249/AX3565AU-309 by liufurong at 20231212 end */
 static int psy_charger_property_is_writeable(struct power_supply *psy,
 					       enum power_supply_property psp)
 {
@@ -2341,6 +4045,12 @@ static int psy_charger_property_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_STORE_MODE:
 		return 1;
 	/*TabA7 Lite code for P210330-05709 by wenyaqi at 20210401 end*/
+	/* hs04 code for P221123-05653 by shixuanxuan at 20221201 start */
+	#ifndef HQ_FACTORY_BUILD
+	case POWER_SUPPLY_PROP_BATT_FULL_CAPACITY:
+		return 1;
+	#endif
+	/* hs04 code for P221123-05653 by shixuanxuan at 20221201 end */
 	#endif
 	default:
 		return 0;
@@ -2450,6 +4160,7 @@ static int psy_charger_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_USB_TYPE:
 		val->intval = info->chr_type;
+		pr_err("%s:ot8 chr_type = %d\n", __func__, info->chr_type);
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_BOOT:
 		val->intval = get_charger_zcv(info, chg);
@@ -2493,6 +4204,7 @@ static int psy_charger_get_property(struct power_supply *psy,
 	#ifndef HQ_FACTORY_BUILD	//ss version
 	case POWER_SUPPLY_PROP_BATTERY_CYCLE:
 		val->intval = info->data.ss_batt_cycle;
+		break;
 	#endif
 	/*TabA7 Lite code for SR-AX3565-01-124 Import battery aging by wenyaqi at 20201221 end*/
 	/*TabA7 Lite code for discharging over 80 by wenyaqi at 20210101 start*/
@@ -2522,6 +4234,16 @@ int psy_charger_set_property(struct power_supply *psy,
 {
 	struct mtk_charger *info;
 	int idx;
+/*hs04 code for P221123-05653 by shixuanxuan at 20221224 start*/
+#ifndef HQ_FACTORY_BUILD
+	struct power_supply *bat_psy;
+
+	bat_psy = power_supply_get_by_name("battery");
+	if (bat_psy == NULL) {
+		chr_err("%s: get battery psy failed\n", __func__);
+	}
+#endif
+/*hs04 code for P221123-05653 by shixuanxuan at 20221224 end*/
 
 	chr_err("%s: prop:%d %d\n", __func__, psp, val->intval);
 
@@ -2556,14 +4278,53 @@ int psy_charger_set_property(struct power_supply *psy,
 	/*TabA7 Lite  code for SR-AX3565-01-108 by gaoxugang at 20201124 start*/
 	#if !defined(HQ_FACTORY_BUILD)
 	case POWER_SUPPLY_PROP_BATT_SLATE_MODE:
+	/* HS04_U/HS14_U/TabA7 Lite U for P231128-06029 by liufurong at 20231204 start */
+		/* HS14_U/TabA7 Lite U for AL6528AU-249/AX3565AU-309 by liufurong at 20231212 start */
+		if (val->intval == SEC_SLATE_OFF) {
+			info->input_suspend = false;
+			charger_dev_enable(info->chg1_dev, true);
+			charger_dev_do_event(info->chg1_dev,EVENT_RECHARGE, 0);
+			charger_dev_enable_powerpath(info->chg1_dev, true);
+			printk("ltk-1\n");
+			if (info->batt_slate_mode == SEC_SMART_SWITCH_SRC || info->batt_slate_mode == SEC_SMART_SWITCH_SLATE) {
+				pd_dpm_send_source_caps_switch(1000);
+			}
+		} else if (val->intval == SEC_SLATE_MODE) {
+			info->input_suspend = true;
+			charger_dev_enable(info->chg1_dev, false);
+			charger_dev_do_event(info->chg1_dev,EVENT_DISCHARGE, 0);
+			charger_dev_enable_powerpath(info->chg1_dev, false);
+			printk("ltk-0\n");
+		} else if (val->intval == SEC_SMART_SWITCH_SLATE) {
+			pd_dpm_send_source_caps_switch(500);
+			chr_err("%s:  dont suppot this slate mode %d\n", __func__, val->intval);
+		} else if (val->intval == SEC_SMART_SWITCH_SRC) {
+			pd_dpm_send_source_caps_switch(0);
+			chr_err("%s:  dont suppot this slate mode %d\n", __func__, val->intval);
+		}
+		/* HS14_U/TabA7 Lite U for AL6528AU-249/AX3565AU-309 by liufurong at 20231212 end */
+		info->batt_slate_mode = val->intval;
+		chr_err("%s:  set slate mode %d\n", __func__, val->intval);
+		break;
+	/* HS04_U/HS14_U/TabA7 Lite U for P231128-06029 by liufurong at 20231204 end */
 	#endif
 	/*TabA7 Lite  code for SR-AX3565-01-108 by gaoxugang at 20201124 end*/
 	/*TabA7 Lite code for OT8-384 fix confliction between input_suspend and sw_ovp by wenyaqi at 20201224 start*/
 	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
-		if (val->intval)
+		if (val->intval){
 			info->input_suspend = true;
-		else
+                charger_dev_enable(info->chg1_dev, false);
+                charger_dev_do_event(info->chg1_dev,EVENT_DISCHARGE, 0);
+                charger_dev_enable_powerpath(info->chg1_dev, false);
+                printk("ltk-0\n");
+                }
+		else{
 			info->input_suspend = false;
+                charger_dev_enable(info->chg1_dev, true);
+                charger_dev_do_event(info->chg1_dev,EVENT_RECHARGE, 0);
+                charger_dev_enable_powerpath(info->chg1_dev, true);
+                printk("ltk-1\n");
+                }
 		break;
 	/*TabA7 Lite code for OT8-384 fix confliction between input_suspend and sw_ovp by wenyaqi at 20201224 start*/
 	/* AX3565 for SR-AX3565-01-737 add battery protect function by shixuanxuan at 2021/01/13 start */
@@ -2600,16 +4361,25 @@ int psy_charger_set_property(struct power_supply *psy,
 		break;
 	#endif
 	/*TabA7 Lite code for discharging over 80 by wenyaqi at 20210101 end*/
-	/*TabA7 Lite code for P210330-05709 by wenyaqi at 20210401 start*/
+	/*TabA7 Lite code for SR-AX3565-01-109 by wenyaqi at 20210416 start*/
 	#ifndef HQ_FACTORY_BUILD	//ss version
 	case POWER_SUPPLY_PROP_STORE_MODE:
-		if (val->intval)
-			info->batt_store_mode = true;
-		else
-			info->batt_store_mode = false;
+		ss_set_batt_store_mode(info, val);
 		break;
 	#endif
-	/*TabA7 Lite code for P210330-05709 by wenyaqi at 20210401 end*/
+	/*TabA7 Lite code for SR-AX3565-01-109 by wenyaqi at 20210416 end*/
+	/* hs04 code for P221123-05653 by shixuanxuan at 20221201 start */
+	#ifndef HQ_FACTORY_BUILD
+	case POWER_SUPPLY_PROP_BATT_FULL_CAPACITY:
+		ss_charger_check_status(info);
+		/*hs04 code for P221123-05653 by shixuanxuan at 20221224 start*/
+		if (bat_psy) {
+			pr_err("%s: battery psy changed\n",__func__);
+			power_supply_changed(bat_psy);
+		}
+		break;
+	#endif
+	/* hs04 code for P221123-05653 by shixuanxuan at 20221201 end */
 	default:
 		return -EINVAL;
 	}
@@ -2618,6 +4388,7 @@ int psy_charger_set_property(struct power_supply *psy,
 	return 0;
 }
 
+#endif//for 08
 static void mtk_charger_external_power_changed(struct power_supply *psy)
 {
 	struct mtk_charger *info;
@@ -2626,10 +4397,13 @@ static void mtk_charger_external_power_changed(struct power_supply *psy)
 	int ret;
 
 	info = (struct mtk_charger *)power_supply_get_drvdata(psy);
-	chg_psy = devm_power_supply_get_by_phandle(&info->pdev->dev,
-						       "charger");
+	chg_psy = info->chg_psy;
+
 	if (IS_ERR_OR_NULL(chg_psy)) {
 		pr_notice("%s Couldn't get chg_psy\n", __func__);
+		chg_psy = devm_power_supply_get_by_phandle(&info->pdev->dev,
+			"charger");
+		info->chg_psy = chg_psy;
 	} else {
 		ret = power_supply_get_property(chg_psy,
 			POWER_SUPPLY_PROP_ONLINE, &prop);
@@ -2637,7 +4411,7 @@ static void mtk_charger_external_power_changed(struct power_supply *psy)
 			POWER_SUPPLY_PROP_USB_TYPE, &prop2);
 	}
 
-	pr_notice("%s event, name:%s online:%d type:%d vbus:%d\n", __func__,
+	pr_err("%s event, name:%s online:%d type:%d vbus:%d\n", __func__,
 		psy->desc->name, prop.intval, prop2.intval,
 		get_vbus(info));
 
@@ -2649,6 +4423,12 @@ int notify_adapter_event(struct notifier_block *notifier,
 			unsigned long evt, void *val)
 {
 	struct mtk_charger *pinfo = NULL;
+	struct power_supply *psy;
+
+	psy = power_supply_get_by_name("battery");
+	if (!psy) {
+		chr_err("get battery psy failed\n");
+	}
 
 	chr_err("%s %d\n", __func__, evt);
 
@@ -2717,6 +4497,11 @@ int notify_adapter_event(struct notifier_block *notifier,
 		mtk_chgstat_notify(pinfo);
 		break;
 	}
+
+	if (psy) {
+		power_supply_changed(psy);
+	}
+
 	return NOTIFY_DONE;
 }
 
@@ -2729,6 +4514,323 @@ int chg_alg_event(struct notifier_block *notifier,
 }
 
 
+#ifdef CONFIG_HQ_PROJECT_HS03S
+//for 06
+static int mtk_charger_probe(struct platform_device *pdev)
+{
+	struct mtk_charger *info = NULL;
+	int i;
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
+	#ifdef CONFIG_AFC_CHARGER
+	int ret;
+	#endif
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
+	char *name = NULL;
+
+	chr_err("%s: starts\n", __func__);
+
+	info = devm_kzalloc(&pdev->dev, sizeof(*info), GFP_KERNEL);
+	if (!info)
+		return -ENOMEM;
+	platform_set_drvdata(pdev, info);
+	info->pdev = pdev;
+
+	mtk_charger_parse_dt(info, &pdev->dev);
+
+	mutex_init(&info->cable_out_lock);
+	mutex_init(&info->charger_lock);
+	mutex_init(&info->pd_lock);
+	name = devm_kasprintf(&pdev->dev, GFP_KERNEL, "%s",
+		"charger suspend wakelock");
+	info->charger_wakelock =
+		wakeup_source_register(NULL, name);
+	spin_lock_init(&info->slock);
+
+	init_waitqueue_head(&info->wait_que);
+	info->polling_interval = CHARGING_INTERVAL;
+	mtk_charger_init_timer(info);
+#ifdef CONFIG_PM
+	info->pm_notifier.notifier_call = charger_pm_event;
+#endif /* CONFIG_PM */
+	srcu_init_notifier_head(&info->evt_nh);
+	mtk_charger_setup_files(pdev);
+	mtk_charger_get_atm_mode(info);
+
+	for (i = 0; i < CHGS_SETTING_MAX; i++) {
+		info->chg_data[i].thermal_charging_current_limit = -1;
+		info->chg_data[i].thermal_input_current_limit = -1;
+		info->chg_data[i].input_current_limit_by_aicl = -1;
+	}
+	info->enable_hv_charging = true;
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	info->batt_store_mode = false;
+	info->charger_wakelock_app =
+		wakeup_source_register(NULL, "wakelockapp");
+	INIT_DELAYED_WORK(&info->retail_app_status_change_work, ss_retail_app_status_change_work);
+	INIT_DELAYED_WORK(&info->poweroff_dwork, offmode_delay_work);
+	#endif
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	#if !defined(HQ_FACTORY_BUILD)
+	INIT_DELAYED_WORK(&info->charging_count_work, hq_charging_count_work);
+	//schedule_delayed_work(&info->charging_count_work, msecs_to_jiffies(CHR_COUNT_TIME));
+	#endif
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+	/* HS03s code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 start */
+    #if !defined(HQ_FACTORY_BUILD)
+	info->current_time = 0;
+  	#endif
+	/* HS03s code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 end */
+	info->psy_desc1.name = "mtk-master-charger";
+	info->psy_desc1.type = POWER_SUPPLY_TYPE_UNKNOWN;
+	info->psy_desc1.properties = charger_psy_properties;
+	info->psy_desc1.num_properties = ARRAY_SIZE(charger_psy_properties);
+	info->psy_desc1.get_property = psy_charger_get_property;
+	info->psy_desc1.set_property = psy_charger_set_property;
+	info->psy_desc1.property_is_writeable =
+			psy_charger_property_is_writeable;
+	info->psy_desc1.external_power_changed =
+		mtk_charger_external_power_changed;
+	info->psy_cfg1.drv_data = info;
+	info->psy1 = power_supply_register(&pdev->dev, &info->psy_desc1,
+			&info->psy_cfg1);
+
+	info->chg_psy = devm_power_supply_get_by_phandle(&pdev->dev,
+		"charger");
+	if (IS_ERR_OR_NULL(info->chg_psy))
+		chr_err("%s: devm power fail to get chg_psy\n", __func__);
+
+	info->bat_psy = devm_power_supply_get_by_phandle(&pdev->dev,
+		"gauge");
+	if (IS_ERR_OR_NULL(info->bat_psy))
+		chr_err("%s: devm power fail to get bat_psy\n", __func__);
+
+	if (IS_ERR(info->psy1))
+		chr_err("register psy1 fail:%d\n",
+			PTR_ERR(info->psy1));
+
+	info->psy_desc2.name = "mtk-slave-charger";
+	info->psy_desc2.type = POWER_SUPPLY_TYPE_UNKNOWN;
+	info->psy_desc2.properties = charger_psy_properties;
+	info->psy_desc2.num_properties = ARRAY_SIZE(charger_psy_properties);
+	info->psy_desc2.get_property = psy_charger_get_property;
+	info->psy_desc2.set_property = psy_charger_set_property;
+	info->psy_desc2.property_is_writeable =
+			psy_charger_property_is_writeable;
+	info->psy_cfg2.drv_data = info;
+	info->psy2 = power_supply_register(&pdev->dev, &info->psy_desc2,
+			&info->psy_cfg2);
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	#if !defined(HQ_FACTORY_BUILD)
+	info->batt_protect_flag = ENABLE_BATT_PROTECT;
+	info->en_batt_protect = DISABLE_BATT_PROTECT;
+	info->over_cap_count = 0;
+	info->cap_hold_count = 0;
+	info->recharge_count = 0;
+	info->interval_time = 0;
+	#endif
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+	if (IS_ERR(info->psy2))
+		chr_err("register psy2 fail:%d\n",
+			PTR_ERR(info->psy2));
+
+	info->log_level = CHRLOG_DEBUG_LEVEL;
+
+	info->pd_adapter = get_adapter_by_name("pd_adapter");
+	if (!info->pd_adapter)
+		chr_err("%s: No pd adapter found\n");
+	else {
+		info->pd_nb.notifier_call = notify_adapter_event;
+		register_adapter_device_notifier(info->pd_adapter,
+						 &info->pd_nb);
+	}
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
+	#ifdef CONFIG_AFC_CHARGER
+	ret = afc_charge_init(info);
+	if (ret < 0)
+	{
+		info->enable_afc = false;
+		info->hv_disable = HV_DISABLE;
+	} else {
+		info->enable_afc = true;
+		info->hv_disable = HV_ENABLE;
+	}
+	#endif
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
+
+	info->chg_alg_nb.notifier_call = chg_alg_event;
+	/*HS03s for DEVAL5626-469 by liujie at 20210819 start*/
+    init_jeita_state_machine(info);
+	/*HS03s for DEVAL5626-469 by liujie at 20210819 end*/
+	kthread_run(charger_routine_thread, info, "charger_thread");
+
+	return 0;
+}
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+//for 06
+static int mtk_charger_probe(struct platform_device *pdev)
+{
+	struct mtk_charger *info = NULL;
+	int i;
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
+	#ifdef CONFIG_AFC_CHARGER
+	int ret;
+	#endif
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
+	char *name = NULL;
+
+	chr_err("%s: starts\n", __func__);
+
+	info = devm_kzalloc(&pdev->dev, sizeof(*info), GFP_KERNEL);
+	if (!info)
+		return -ENOMEM;
+	platform_set_drvdata(pdev, info);
+	info->pdev = pdev;
+
+	mtk_charger_parse_dt(info, &pdev->dev);
+
+	mutex_init(&info->cable_out_lock);
+	mutex_init(&info->charger_lock);
+	mutex_init(&info->pd_lock);
+	name = devm_kasprintf(&pdev->dev, GFP_KERNEL, "%s",
+		"charger suspend wakelock");
+	info->charger_wakelock =
+		wakeup_source_register(NULL, name);
+	spin_lock_init(&info->slock);
+
+	init_waitqueue_head(&info->wait_que);
+	info->polling_interval = CHARGING_INTERVAL;
+	mtk_charger_init_timer(info);
+#ifdef CONFIG_PM
+	info->pm_notifier.notifier_call = charger_pm_event;
+#endif /* CONFIG_PM */
+	srcu_init_notifier_head(&info->evt_nh);
+	mtk_charger_setup_files(pdev);
+	mtk_charger_get_atm_mode(info);
+
+	for (i = 0; i < CHGS_SETTING_MAX; i++) {
+		info->chg_data[i].thermal_charging_current_limit = -1;
+		info->chg_data[i].thermal_input_current_limit = -1;
+		info->chg_data[i].input_current_limit_by_aicl = -1;
+	}
+	info->enable_hv_charging = true;
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 start*/
+	#ifndef HQ_FACTORY_BUILD	//ss version
+	info->batt_store_mode = false;
+	info->charger_wakelock_app =
+		wakeup_source_register(NULL, "wakelockapp");
+	INIT_DELAYED_WORK(&info->retail_app_status_change_work, ss_retail_app_status_change_work);
+	INIT_DELAYED_WORK(&info->poweroff_dwork, offmode_delay_work);
+	#endif
+	/*HS03s for SR-AL5625-01-277 by wenyaqi at 20210427 end*/
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	#if !defined(HQ_FACTORY_BUILD)
+	INIT_DELAYED_WORK(&info->charging_count_work, hq_charging_count_work);
+	//schedule_delayed_work(&info->charging_count_work, msecs_to_jiffies(CHR_COUNT_TIME));
+	#endif
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+	/* HS03s code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 start */
+    #if !defined(HQ_FACTORY_BUILD)
+	info->current_time = 0;
+  	#endif
+	/* HS03s code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 end */
+	info->psy_desc1.name = "mtk-master-charger";
+	info->psy_desc1.type = POWER_SUPPLY_TYPE_UNKNOWN;
+	info->psy_desc1.properties = charger_psy_properties;
+	info->psy_desc1.num_properties = ARRAY_SIZE(charger_psy_properties);
+	info->psy_desc1.get_property = psy_charger_get_property;
+	info->psy_desc1.set_property = psy_charger_set_property;
+	info->psy_desc1.property_is_writeable =
+			psy_charger_property_is_writeable;
+	info->psy_desc1.external_power_changed =
+		mtk_charger_external_power_changed;
+	info->psy_cfg1.drv_data = info;
+	info->psy1 = power_supply_register(&pdev->dev, &info->psy_desc1,
+			&info->psy_cfg1);
+
+	info->chg_psy = devm_power_supply_get_by_phandle(&pdev->dev,
+		"charger");
+	if (IS_ERR_OR_NULL(info->chg_psy))
+		chr_err("%s: devm power fail to get chg_psy\n", __func__);
+
+	info->bat_psy = devm_power_supply_get_by_phandle(&pdev->dev,
+		"gauge");
+	if (IS_ERR_OR_NULL(info->bat_psy))
+		chr_err("%s: devm power fail to get bat_psy\n", __func__);
+
+	if (IS_ERR(info->psy1))
+		chr_err("register psy1 fail:%d\n",
+			PTR_ERR(info->psy1));
+
+	info->psy_desc2.name = "mtk-slave-charger";
+	info->psy_desc2.type = POWER_SUPPLY_TYPE_UNKNOWN;
+	info->psy_desc2.properties = charger_psy_properties;
+	info->psy_desc2.num_properties = ARRAY_SIZE(charger_psy_properties);
+	info->psy_desc2.get_property = psy_charger_get_property;
+	info->psy_desc2.set_property = psy_charger_set_property;
+	info->psy_desc2.property_is_writeable =
+			psy_charger_property_is_writeable;
+	info->psy_cfg2.drv_data = info;
+	info->psy2 = power_supply_register(&pdev->dev, &info->psy_desc2,
+			&info->psy_cfg2);
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 start */
+	#if !defined(HQ_FACTORY_BUILD)
+	info->batt_protect_flag = ENABLE_BATT_PROTECT;
+	info->en_batt_protect = DISABLE_BATT_PROTECT;
+	info->over_cap_count = 0;
+	info->cap_hold_count = 0;
+	info->recharge_count = 0;
+	info->interval_time = 0;
+	/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 start*/
+	gxy_ttf_init();
+	/*hs04_u for  AL6398AU-178 by shixuanxuan at 20240117 end*/
+	#endif
+	/* HS03s code for SR-AL5625-01-260 by shixuanxuan at 20210425 end */
+	if (IS_ERR(info->psy2))
+		chr_err("register psy2 fail:%d\n",
+			PTR_ERR(info->psy2));
+
+	info->log_level = CHRLOG_DEBUG_LEVEL;
+
+	info->pd_adapter = get_adapter_by_name("pd_adapter");
+	if (!info->pd_adapter)
+		chr_err("%s: No pd adapter found\n");
+	else {
+		info->pd_nb.notifier_call = notify_adapter_event;
+		register_adapter_device_notifier(info->pd_adapter,
+						 &info->pd_nb);
+	}
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 start*/
+	#ifdef CONFIG_AFC_CHARGER
+	ret = afc_charge_init(info);
+	if (ret < 0)
+	{
+		info->enable_afc = false;
+		info->hv_disable = HV_DISABLE;
+	} else {
+		info->enable_afc = true;
+		info->hv_disable = HV_ENABLE;
+	}
+	#endif
+	/*HS03s for SR-AL5625-01-249 by wenyaqi at 20210425 end*/
+
+	info->chg_alg_nb.notifier_call = chg_alg_event;
+	/*HS03s for DEVAL5626-469 by liujie at 20210819 start*/
+    init_jeita_state_machine(info);
+	/*HS03s for DEVAL5626-469 by liujie at 20210819 end*/
+	kthread_run(charger_routine_thread, info, "charger_thread");
+
+	return 0;
+}
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+#ifndef HQ_FACTORY_BUILD
+bool sales_code_is_vzw = false;
+EXPORT_SYMBOL(sales_code_is_vzw);
+#endif
+//for 08
 static int mtk_charger_probe(struct platform_device *pdev)
 {
 	struct mtk_charger *info = NULL;
@@ -2786,9 +4888,14 @@ static int mtk_charger_probe(struct platform_device *pdev)
 	#if !defined(HQ_FACTORY_BUILD)
 	INIT_DELAYED_WORK(&info->charging_count_work, hq_charging_count_work);
 
-	schedule_delayed_work(&info->charging_count_work, msecs_to_jiffies(CHR_COUNT_TIME));
+	//schedule_delayed_work(&info->charging_count_work, msecs_to_jiffies(CHR_COUNT_TIME));
 	#endif
 	/* AX3565 for SR-AX3565-01-737 add battery protect function by shixuanxuan at 2021/01/13 start */
+	/* TabA7 Lite code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 start */
+        #if !defined(HQ_FACTORY_BUILD)
+	info->current_time = 0;
+  	#endif
+	/* TabA7 Lite code for HQ00001 Modify battery protect function by shixuanxuan at 2021/05/10 end */
 	info->psy_desc1.name = "mtk-master-charger";
 	info->psy_desc1.type = POWER_SUPPLY_TYPE_UNKNOWN;
 	info->psy_desc1.properties = charger_psy_properties;
@@ -2826,10 +4933,19 @@ static int mtk_charger_probe(struct platform_device *pdev)
 	info->log_level = CHRLOG_DEBUG_LEVEL;
 	/* AX3565 for SR-AX3565-01-737 add battery protect function by shixuanxuan at 2021/01/13 start */
 	#if !defined(HQ_FACTORY_BUILD) //factory version
+	/* AX3565 for P210308-05696 Modify battery protect function by shixuanxuan at 2021/05/10 start */
 	info->batt_protect_flag = ENABLE_BATT_PROTECT;
-	info->input_suspend_old = ENABLE_SCHARGING;
-	info->charge_enable_old = ENABLE_BATT_CHARGING;
-	info->chr_count = 0;
+	info->en_batt_protect = DISABLE_BATT_PROTECT;
+	info->over_cap_count = 0;
+	info->cap_hold_count = 0;
+	info->recharge_count = 0;
+	info->interval_time = 0;
+	/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 start */
+	#ifdef CONFIG_BATT_TIME_TO_FULL
+	gxy_ttf_init();
+	#endif
+	/* Tab A7 lite_U code for AX3565AU-313 by shanxinkai at 20240120 start */
+	/* AX3565 for P210308-05696 Modify battery protect function by shixuanxuan at 2021/05/10 end */
 	#endif
 	/* AX3565 for SR-AX3565-01-737 add battery protect function by shixuanxuan at 2021/01/13 end */
 	/*TabA7 Lite code for P210330-05709 by wenyaqi at 20210401 start*/
@@ -2837,6 +4953,20 @@ static int mtk_charger_probe(struct platform_device *pdev)
 	info->batt_store_mode = false;
 	#endif
 	/*TabA7 Lite code for P210330-05709 by wenyaqi at 20210401 end*/
+	/*TabA7 Lite code for P210511-00511 by wenyaqi at 20210518 start*/
+	#ifndef HQ_FACTORY_BUILD
+	//info->ss_chr_type_detect = 0;
+	#endif
+	/*TabA7 Lite code for P210511-00511 by wenyaqi at 20210518 end*/
+	/*TabA7 Lite code for P210511-00533 by wenyaqi at 20210713 start*/
+
+	#ifndef HQ_FACTORY_BUILD
+	if(sales_code_is("VZW"))
+		sales_code_is_vzw = true;
+	else
+		sales_code_is_vzw = false;
+	#endif
+	/*TabA7 Lite code for P210511-00533 by wenyaqi at 20210713 end*/
 	info->pd_adapter = get_adapter_by_name("pd_adapter");
 	if (!info->pd_adapter)
 		chr_err("%s: No pd adapter found\n");
@@ -2868,6 +4998,8 @@ static int mtk_charger_probe(struct platform_device *pdev)
 
 	return 0;
 }
+
+#endif//for o8
 
 static int mtk_charger_remove(struct platform_device *dev)
 {

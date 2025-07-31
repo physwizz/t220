@@ -45,7 +45,7 @@
 
 #define MULTI_WRITE    1
 #define  SENSOR_SUB_GPIO_ID          107//add gpio_id
-#define  BASE                        329
+#define  BASE                        73
 /*TabA7 Lite code for OT8-3166 by liuchengfei at 20210223 start*/
 static DEFINE_SPINLOCK(imgsensor_drv_lock);
 

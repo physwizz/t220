@@ -260,11 +260,12 @@ struct thermal_cooling_device *cdev, unsigned long state)
 		/* To trigger data abort to reset the system
 		 * for thermal protection.
 		 */
-		/*TabA7 Lite code for OT8-3638 import D85 policy by wenyaqi at 20210301 start*/
-		#ifndef HQ_D85_BUILD
+		/* hs14 code for SR-AL6528A-01-336 by shanxinkai at 2022/09/15 start */
+		#if defined(HQ_FACTORY_BUILD) && (!defined(HQ_D85_BUILD))
 		BUG();
 		#endif
-		/*TabA7 Lite code for OT8-3638 import D85 policy by wenyaqi at 20210301 end*/
+		/* hs14 code for SR-AL6528A-01-336 by shanxinkai at 2022/09/15 end */
+
 	}
 	return 0;
 }
@@ -694,8 +695,15 @@ static int mtk_ts_pmic_probe(struct platform_device *pdev)
 	 *	mtktspmic_info("[mtktspmic_init]: Warrning !!!"
 	 *				"Need to checking this !!!!!\n");
 	 */
+#if (defined(CONFIG_MACH_MT6739)  \
+	|| defined(CONFIG_MACH_MT6877) \
+	|| defined(CONFIG_MACH_MT6853)    \
+	|| defined(CONFIG_MACH_MT6873)    \
+	|| defined(CONFIG_MACH_MT6893))
+	mtktspmic_cali_prepare();
+#else
 	mtktspmic_cali_prepare(chip->regmap);
-
+#endif
 	mtktspmic_cali_prepare2();
 #if defined(THERMAL_USE_IIO_CHANNEL)
 	mtktspmic_get_from_dts(pdev);
@@ -756,7 +764,7 @@ static struct platform_driver mtk_ts_pmic_driver = {
 
 static int __init mtktspmic_init(void)
 {
-	mtktspmic_info("[%s]\n", __func__);
+	mtktspmic_info("[%s:%d]\n", __func__, __LINE__);
 	return platform_driver_register(&mtk_ts_pmic_driver);
 }
 

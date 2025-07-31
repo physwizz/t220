@@ -42,6 +42,14 @@
 #include <linux/init.h>
 #include <linux/mmu_notifier.h>
 
+#ifdef CONFIG_MTK_ION
+#include "mtk/ion_drv.h"
+#endif
+
+#if IS_ENABLED(CONFIG_MTK_GPU_SUPPORT)
+#include <mt-plat/mtk_gpu_utility.h>
+#endif
+
 #include <asm/tlb.h>
 #include "internal.h"
 #include "slab.h"
@@ -62,6 +70,8 @@ int sysctl_oom_dump_tasks = 1;
  * and mark_oom_victim
  */
 DEFINE_MUTEX(oom_lock);
+/* Serializes oom_score_adj and oom_score_adj_min updates */
+DEFINE_MUTEX(oom_adj_mutex);
 
 #ifdef CONFIG_NUMA
 /**
@@ -399,10 +409,6 @@ void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
 {
 	struct task_struct *p;
 	struct task_struct *task;
-	unsigned long cur_rss_sum;
-	unsigned long heaviest_rss_sum = 0;
-	char heaviest_comm[TASK_COMM_LEN];
-	pid_t heaviest_pid;
 
 	pr_info("Tasks state (memory values in pages):\n");
 	pr_info("[  pid  ]   uid  tgid total_vm      rss pgtables_bytes swapents oom_score_adj name\n");
@@ -427,19 +433,21 @@ void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
 			mm_pgtables_bytes(task->mm),
 			get_mm_counter(task->mm, MM_SWAPENTS),
 			task->signal->oom_score_adj, task->comm);
-		cur_rss_sum = get_mm_rss(task->mm) +
-					get_mm_counter(task->mm, MM_SWAPENTS);
-		if (cur_rss_sum > heaviest_rss_sum) {
-			heaviest_rss_sum = cur_rss_sum;
-			strncpy(heaviest_comm, task->comm, TASK_COMM_LEN);
-			heaviest_pid = task->pid;
-		}
 		task_unlock(task);
 	}
 	rcu_read_unlock();
-	if (heaviest_rss_sum)
-		pr_info("heaviest_task:%s(%d) rss_pages:%lu\n", heaviest_comm,
-			heaviest_pid, heaviest_rss_sum);
+}
+
+/* dump extra info: HW memory usage */
+static void oom_dump_extra_info(void)
+{
+#ifdef CONFIG_MTK_ION
+	ion_mm_heap_memory_detail();
+#endif
+#if IS_ENABLED(CONFIG_MTK_GPU_SUPPORT)
+	if (mtk_dump_gpu_memory_usage() == false)
+		pr_info("mtk_dump_gpu_memory_usage not support\n");
+#endif
 }
 
 static void dump_header(struct oom_control *oc, struct task_struct *p)
@@ -462,6 +470,8 @@ static void dump_header(struct oom_control *oc, struct task_struct *p)
 	}
 	if (sysctl_oom_dump_tasks)
 		dump_tasks(oc->memcg, oc->nodemask);
+
+	oom_dump_extra_info();
 }
 
 /*

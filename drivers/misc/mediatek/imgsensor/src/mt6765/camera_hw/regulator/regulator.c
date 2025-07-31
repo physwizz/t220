@@ -15,6 +15,27 @@
 #include <linux/notifier.h>
 #include <linux/regulator/consumer.h>
 #include <linux/sched/signal.h>
+#ifdef CONFIG_HQ_PROJECT_HS03S
+/* HS03s code for P210619-01144 by chenjun at 2021/07/15 start */
+#include <linux/mfd/mt6397/core.h>
+#include <linux/of_platform.h>
+#include <linux/regmap.h>
+#include <linux/mfd/mt6357/registers.h>
+
+static struct mt6397_chip	 *chip;
+/* HS03s code for P210619-01144 by chenjun at 2021/07/15 end */
+#endif
+
+/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 start*/
+#ifdef CONFIG_HQ_PROJECT_HS04
+#include <linux/mfd/mt6397/core.h>
+#include <linux/of_platform.h>
+#include <linux/regmap.h>
+#include <linux/mfd/mt6357/registers.h>
+
+static struct mt6397_chip	 *chip;
+#endif
+/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 end*/
 
 static struct REGULATOR *preg_own;
 static bool Is_Notify_call[IMGSENSOR_SENSOR_IDX_MAX_NUM][REGULATOR_TYPE_MAX_NUM];
@@ -29,7 +50,10 @@ struct reg_oc_debug_t {
 	bool is_md_reg;
 };
 
-static struct reg_oc_debug_t reg_oc_debug[IMGSENSOR_SENSOR_IDX_MAX_NUM][REGULATOR_TYPE_MAX_NUM];
+ /* A03s code for CAM-AL5625-01-247 by lisizhou at 2021/05/10 start */
+static struct reg_oc_debug_t
+	reg_oc_debug[IMGSENSOR_SENSOR_IDX_MAX_NUM][REGULATOR_TYPE_MAX_NUM];
+ /* A03s code for CAM-AL5625-01-247 by lisizhou at 2021/05/10 end */
 
 static const int regulator_voltage[] = {
 	REGULATOR_VOLTAGE_0,
@@ -64,29 +88,56 @@ static int regulator_oc_notify(
 			return NOTIFY_OK;
 
 		/* Do OC handling */
-		pr_info("Imgsensor OC notify regulator: %s OC lisizhou pid %ld\n",
+		pr_info("Imgsensor OC notify regulator: %s OC pid %ld\n",
 			reg_oc_dbg->name, (long)reg_instance.pid);
 
 		gimgsensor.status.oc = 1;
 		aee_kernel_warning("Imgsensor OC", "Over current");
+		
 		if (reg_instance.pid != -1 &&
 		pid_task(find_get_pid(reg_instance.pid), PIDTYPE_PID) != NULL) {
 			force_sig(SIGKILL,
 				pid_task(find_get_pid(reg_instance.pid),
 				PIDTYPE_PID));
 		}
+		
+		/* HS03s code for P210619-01144 by chenjun at 2021/07/10 start */
+		// if (reg_instance.pid != -1 &&
+		// pid_task(find_get_pid(reg_instance.pid), PIDTYPE_PID) != NULL) {
+		// 	force_sig(SIGKILL,
+		// 		pid_task(find_get_pid(reg_instance.pid),
+		// 		PIDTYPE_PID));
+		// }
+		/* HS03s code for P210619-01144 by chenjun at 2021/07/10 end */
 		return NOTIFY_OK;
 }
 
 #define OC_MODULE "camera"
 enum IMGSENSOR_RETURN imgsensor_oc_interrupt(
-	enum IMGSENSOR_SENSOR_IDX sensor_idx, bool enable)
+	enum IMGSENSOR_SENSOR_IDX sensor_idxU, bool enable)
 {
 	int i = 0;
 	int ret = 0;
+	unsigned int sensor_idx = 0;
+
+	sensor_idx = sensor_idxU;
 
 	mutex_lock(&oc_mutex);
 	if (enable) {
+		#ifdef CONFIG_HQ_PROJECT_HS03S
+			regmap_update_bits(chip->regmap, 0x1a7c, 1<< 9, 0<< 9);
+			regmap_update_bits(chip->regmap, 0x1a7a, 1<< 10, 0<< 10);
+			regmap_update_bits(chip->regmap, 0x18ec, 1<< 15, 0<< 15);
+	//		pr_info("[hs03s I]change vcama oc triger befor register\n");
+		#endif
+		/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 start*/
+		#ifdef CONFIG_HQ_PROJECT_HS04
+			regmap_update_bits(chip->regmap, 0x1a7c, 1<< 9, 0<< 9);
+			regmap_update_bits(chip->regmap, 0x1a7a, 1<< 10, 0<< 10);
+			regmap_update_bits(chip->regmap, 0x18ec, 1<< 15, 0<< 15);
+			//pr_info("[hs03s I]change vcama oc triger befor register\n");
+		#endif
+		/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 end*/
 		mdelay(5);
 		for (i = 0; i < REGULATOR_TYPE_MAX_NUM; i++) {
 			if (preg_own->pregulator[sensor_idx][i] &&
@@ -94,49 +145,74 @@ enum IMGSENSOR_RETURN imgsensor_oc_interrupt(
 					!Is_Notify_call[sensor_idx][i]
 				) {
 				/* oc notifier callback function */
-				pr_info("imgsensor_oc_interrupt[0] lisizhou\n");
+				 /* A03s code for CAM-AL5625-01-247 by lisizhou at 2021/05/10 start */
 				reg_oc_debug[sensor_idx][i].name =
 					regulator_control[i].pregulator_type;
 				reg_oc_debug[sensor_idx][i].regulator =
 					preg_own->pregulator[sensor_idx][i];
 				reg_oc_debug[sensor_idx][i].nb.notifier_call =
 					regulator_oc_notify;
-				pr_info("imgsensor_oc_interrupt[1] lisizhou\n");
 				ret = devm_regulator_register_notifier(
 					preg_own->pregulator[sensor_idx][i],
 					&reg_oc_debug[sensor_idx][i].nb);
 				Is_Notify_call[sensor_idx][i] = true;
-
+				 /* A03s code for CAM-AL5625-01-247 by lisizhou at 2021/05/10 end */
 				if (ret) {
+				/*
 					pr_info(
 					"regulator notifier request error\n");
+					*/
 				}
-				pr_debug(
+				#ifdef CONFIG_HQ_PROJECT_HS03S
+			//	pr_info(
+				#else
+			//	pr_debug(
+				#endif
+				/*
 					"[regulator] %s idx=%d %s enable=%d oc enabled\n",
 					__func__,
 					sensor_idx,
 					regulator_control[i].pregulator_type,
 					enable);
+					*/
 			}
 		}
 		rcu_read_lock();
 		reg_instance.pid = current->tgid;
 		rcu_read_unlock();
 	} else {
+		#ifdef CONFIG_HQ_PROJECT_HS03S
+			regmap_update_bits(chip->regmap, 0x1a7c, 1<< 9,  1<< 9); // ocfb enable
+			regmap_update_bits(chip->regmap, 0x1a7a, 1<< 10, 1<< 10); //ldo vcama stbtd 264us -> 312us
+			regmap_update_bits(chip->regmap, 0x18ec, 1<< 15, 1<< 15); // ldo ocfb degtd 10us ->100us
+	//		pr_info("[hs03s I]change vcama oc triger befor unregister\n");
+		#endif
+		/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 start*/
+		#ifdef CONFIG_HQ_PROJECT_HS04
+			regmap_update_bits(chip->regmap, 0x1a7c, 1<< 9,  1<< 9); // ocfb enable
+			regmap_update_bits(chip->regmap, 0x1a7a, 1<< 10, 1<< 10); //ldo vcama stbtd 264us -> 312us
+			regmap_update_bits(chip->regmap, 0x18ec, 1<< 15, 1<< 15); // ldo ocfb degtd 10us ->100us
+			//pr_info("[hs03s I]change vcama oc triger befor unregister\n");
+		#endif
+		/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 end*/
 		reg_instance.pid = -1;
 		/* Disable interrupt before power off */
 
 		for (i = 0; i < REGULATOR_TYPE_MAX_NUM; i++) {
 			if (preg_own->pregulator[sensor_idx][i] &&
+			 /* A03s code for CAM-AL5625-01-247 by lisizhou at 2021/05/10 start */
 				regulator_is_enabled(preg_own->pregulator[sensor_idx][i]) &&
+			 /* A03s code for CAM-AL5625-01-247 by lisizhou at 2021/05/10 end */
 				Is_Notify_call[sensor_idx][i]
 				) {
 				/* oc notifier callback function */
 				devm_regulator_unregister_notifier(
 					preg_own->pregulator[sensor_idx][i],
+			 /* A03s code for CAM-AL5625-01-247 by lisizhou at 2021/05/10 start */
 					&reg_oc_debug[sensor_idx][i].nb);
-				Is_Notify_call[sensor_idx][i] = false;
-				pr_info("Unregister OC notifier");
+			 /* A03s code for CAM-AL5625-01-247 by lisizhou at 2021/05/10 end */
+			 	Is_Notify_call[sensor_idx][i] = false;
+			//	pr_info("Unregister OC notifier");
 			}
 		}
 
@@ -162,6 +238,16 @@ static enum IMGSENSOR_RETURN regulator_init(void *pinstance)
 	struct REGULATOR *preg = (struct REGULATOR *)pinstance;
 	struct device            *pdevice;
 	struct device_node       *pof_node;
+	#ifdef CONFIG_HQ_PROJECT_HS03S
+	struct device_node	 *pmic_node;
+	struct platform_device	 *pmic_pdev;
+	#endif
+	/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 start*/
+	#ifdef CONFIG_HQ_PROJECT_HS04
+	struct device_node	 *pmic_node;
+	struct platform_device	 *pmic_pdev;
+	#endif
+	/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 end*/
 	int j, i;
 	char str_regulator_name[LENGTH_FOR_SNPRINTF];
 
@@ -173,6 +259,44 @@ static enum IMGSENSOR_RETURN regulator_init(void *pinstance)
 	if (pdevice->of_node == NULL) {
 		pr_err("regulator get cust camera node failed!\n");
 		pdevice->of_node = pof_node;
+		#ifdef CONFIG_HQ_PROJECT_HS03S
+						return IMGSENSOR_RETURN_ERROR;
+			}
+			pmic_node = of_parse_phandle(pdevice->of_node, "pmic", 0);
+			if (!pmic_node)	{
+				pr_info("regulator get pmic_node fail!\n");
+				return IMGSENSOR_RETURN_ERROR;
+			}
+			pmic_pdev = of_find_device_by_node(pmic_node);
+			if (!pmic_pdev)	{
+				pr_info("get pmic_pdev fail!\n");
+				return IMGSENSOR_RETURN_ERROR;
+			}
+			chip = dev_get_drvdata(&(pmic_pdev->dev));
+
+			if (!chip) {
+				pr_err("get chip fail\n");
+		#endif
+		/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 start*/
+		#ifdef CONFIG_HQ_PROJECT_HS04
+						return IMGSENSOR_RETURN_ERROR;
+			}
+			pmic_node = of_parse_phandle(pdevice->of_node, "pmic", 0);
+			if (!pmic_node)	{
+				pr_info("regulator get pmic_node fail!\n");
+				return IMGSENSOR_RETURN_ERROR;
+			}
+			pmic_pdev = of_find_device_by_node(pmic_node);
+			if (!pmic_pdev)	{
+				pr_info("get pmic_pdev fail!\n");
+				return IMGSENSOR_RETURN_ERROR;
+			}
+			chip = dev_get_drvdata(&(pmic_pdev->dev));
+
+			if (!chip) {
+				pr_err("get chip fail\n");
+		#endif
+		/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 end*/
 		return IMGSENSOR_RETURN_ERROR;
 	}
 

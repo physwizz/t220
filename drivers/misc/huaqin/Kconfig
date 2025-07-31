@@ -2,7 +2,7 @@
 # for huaqin mis info
 #
 
-# TabA7 Lite code added by SunXunou at 20201120 start
+
 config HQ_SIM_TRAY_CHECK
 	bool "check sim stry status"
         default y
@@ -10,4 +10,13 @@ config HQ_SIM_TRAY_CHECK
 	  this will create a node to show sim tray status.
 
 	  If unsure, say N.
-# TabA7 Lite code added by SunXunou at 20201120 end
+
+#hs03s code for DEVAL5625-88 by ningkaixuan at 2022/02/15 start
+config TRIGGER_CRASH_BY_KEY
+	default n
+	bool "Enable trigger crash by keys"
+	help
+	  You can trigger crash by pressing keys in strict order:
+	  VOLUMEUP twice + VOLUMEDOWN twice + POWER twice.
+#hs03s code for DEVAL5625-88 by ningkaixuan at 2022/02/15 end
+

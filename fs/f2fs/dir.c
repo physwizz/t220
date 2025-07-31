@@ -10,12 +10,16 @@
 #include <linux/f2fs_fs.h>
 #include <linux/sched/signal.h>
 #include <linux/unicode.h>
-#include <linux/iversion.h>
 #include "f2fs.h"
 #include "node.h"
 #include "acl.h"
 #include "xattr.h"
 #include <trace/events/f2fs.h>
+
+/* an workaround patch for handling hash corruption for casefold file names */
+#ifdef CONFIG_F2FS_SEC_ENC_STRICT_MODE
+#define DENTRY_FULLSCAN_LEVEL			(0)
+#endif
 
 static unsigned long dir_blocks(struct inode *inode)
 {
@@ -285,6 +289,13 @@ struct f2fs_dir_entry *f2fs_find_target_dentry(const struct f2fs_dentry_ptr *d,
 	struct f2fs_dir_entry *de;
 	unsigned long bit_pos = 0;
 	int max_len = 0;
+#ifdef CONFIG_F2FS_SEC_ENC_STRICT_MODE
+	bool skip_hash = false;
+
+	/* in case of inline dentry, max_slots == NULL, else = level */
+	if (!max_slots || *max_slots <= DENTRY_FULLSCAN_LEVEL)
+		skip_hash = true;
+#endif
 
 	if (max_slots)
 		*max_slots = 0;
@@ -302,9 +313,15 @@ struct f2fs_dir_entry *f2fs_find_target_dentry(const struct f2fs_dentry_ptr *d,
 			continue;
 		}
 
+#ifdef CONFIG_F2FS_SEC_ENC_STRICT_MODE
+		if ((skip_hash || de->hash_code == fname->hash) &&
+		    f2fs_match_name(d->inode, fname, d->filename[bit_pos],
+				le16_to_cpu(de->name_len)))
+#else
 		if (de->hash_code == fname->hash &&
 		    f2fs_match_name(d->inode, fname, d->filename[bit_pos],
 				    le16_to_cpu(de->name_len)))
+#endif
 			goto found;
 
 		if (max_slots && max_len > *max_slots)
@@ -333,13 +350,27 @@ static struct f2fs_dir_entry *find_in_level(struct inode *dir,
 	struct f2fs_dir_entry *de = NULL;
 	bool room = false;
 	int max_slots;
+#ifdef CONFIG_F2FS_SEC_ENC_STRICT_MODE
+	unsigned int start_idx;
+#endif
 
 	nbucket = dir_buckets(level, F2FS_I(dir)->i_dir_level);
 	nblock = bucket_blocks(level);
 
+#ifdef CONFIG_F2FS_SEC_ENC_STRICT_MODE
+	if (level <= DENTRY_FULLSCAN_LEVEL) {
+		start_idx = 0;
+	} else {
+		start_idx = le32_to_cpu(fname->hash) % nbucket;
+		nbucket = 1;
+	}
+	bidx = dir_block_index(level, F2FS_I(dir)->i_dir_level, start_idx);
+	end_block = bidx + (nblock * nbucket);
+#else
 	bidx = dir_block_index(level, F2FS_I(dir)->i_dir_level,
-			       le32_to_cpu(fname->hash) % nbucket);
+			le32_to_cpu(fname->hash) % nbucket);
 	end_block = bidx + nblock;
+#endif
 
 	for (; bidx < end_block; bidx++) {
 		/* no need to allocate new dentry pages to all the indices */
@@ -354,6 +385,9 @@ static struct f2fs_dir_entry *find_in_level(struct inode *dir,
 			}
 		}
 
+#ifdef CONFIG_F2FS_SEC_ENC_STRICT_MODE
+		max_slots = level;
+#endif
 		de = find_in_block(dir, dentry_page, fname, &max_slots,
 				   res_page);
 		if (de)
@@ -381,16 +415,15 @@ struct f2fs_dir_entry *__f2fs_find_entry(struct inode *dir,
 	unsigned int max_depth;
 	unsigned int level;
 
+	*res_page = NULL;
+
 	if (f2fs_has_inline_dentry(dir)) {
-		*res_page = NULL;
 		de = f2fs_find_in_inline_dir(dir, fname, res_page);
 		goto out;
 	}
 
-	if (npages == 0) {
-		*res_page = NULL;
+	if (npages == 0)
 		goto out;
-	}
 
 	max_depth = F2FS_I(dir)->i_current_depth;
 	if (unlikely(max_depth > MAX_DIR_HASH_DEPTH)) {
@@ -401,7 +434,6 @@ struct f2fs_dir_entry *__f2fs_find_entry(struct inode *dir,
 	}
 
 	for (level = 0; level < max_depth; level++) {
-		*res_page = NULL;
 		de = find_in_level(dir, level, fname, res_page);
 		if (de || IS_ERR(*res_page))
 			break;
@@ -1083,9 +1115,6 @@ static int f2fs_readdir(struct file *file, struct dir_context *ctx)
 		err = f2fs_read_inline_dir(file, ctx, &fstr);
 		goto out_free;
 	}
-
-	if (!inode_eq_iversion(inode, file->f_version))
-		file->f_version = inode_query_iversion(inode);
 
 	for (; n < npages; n++, ctx->pos = n * NR_DENTRY_IN_BLOCK) {
 

@@ -43,7 +43,7 @@
 #define LOG_INF(format, args...)    pr_info(PFX "[%s] " format, __func__, ##args)
 
 #define MULTI_WRITE    1
-
+/*hs03s code for DEVAL5625-1833 by xuxianwei at 2021/06/28 start*/
 /*TabA7 Lite code for OT8-3166 by liuchengfei at 20210308 start*/
 static DEFINE_SPINLOCK(imgsensor_drv_lock);
 
@@ -52,7 +52,7 @@ static struct imgsensor_info_struct imgsensor_info = {
 	.checksum_value = 0xf7375923,
 	.pre = {
 		.pclk = 90000000,
-		.linelength = 2192,
+		.linelength = 2280,
 		.framelength = 1276,
 		.startx = 0,
 		.starty = 0,
@@ -64,7 +64,7 @@ static struct imgsensor_info_struct imgsensor_info = {
 	},
 	.cap = {
 		.pclk = 90000000,
-		.linelength = 2192,
+		.linelength = 2280,
 		.framelength = 1276,
 		.startx = 0,
 		.starty = 0,
@@ -76,7 +76,7 @@ static struct imgsensor_info_struct imgsensor_info = {
 	},
 	.cap1 = {
 		.pclk = 90000000,
-		.linelength = 2192,
+		.linelength = 2280,
 		.framelength = 1276,
 		.startx = 0,
 		.starty = 0,
@@ -88,7 +88,7 @@ static struct imgsensor_info_struct imgsensor_info = {
 	},
 	.normal_video = {
 		.pclk = 90000000,
-		.linelength = 2192,
+		.linelength = 2280,
 		.framelength = 1276,
 		.startx = 0,
 		.starty = 0,
@@ -100,7 +100,7 @@ static struct imgsensor_info_struct imgsensor_info = {
 	},
 	.hs_video = {
 		.pclk = 90000000,
-		.linelength = 2192,
+		.linelength = 2280,
 		.framelength = 1276,
 		.startx = 0,
 		.starty = 0,
@@ -112,7 +112,7 @@ static struct imgsensor_info_struct imgsensor_info = {
 	},
 	.slim_video = {
 		.pclk = 90000000,
-		.linelength = 2192,
+		.linelength = 2280,
 		.framelength = 1276,
 		.startx = 0,
 		.starty = 0,
@@ -149,7 +149,7 @@ static struct imgsensor_info_struct imgsensor_info = {
 	.i2c_addr_table = {0x6e, 0x20, 0x6f, 0xff},
 	.i2c_speed = 400,
 };
-
+/*hs03s code for DEVAL5625-1833 by xuxianwei at 2021/06/28 end*/
 static struct imgsensor_struct imgsensor = {
 	.mirror = IMAGE_NORMAL,
 	.sensor_mode = IMGSENSOR_MODE_INIT,
@@ -237,10 +237,76 @@ static void set_dummy(void)
 	write_cmos_sensor(0x42, imgsensor.frame_length & 0xff);
 }
 
+static void gc02m1_otp_init(void)
+{
+	write_cmos_sensor(0xfe, 0x00);
+	write_cmos_sensor(0xfc, 0x01);
+	write_cmos_sensor(0xf4, 0x41);
+	write_cmos_sensor(0xf5, 0xc0);
+	write_cmos_sensor(0xf6, 0x44);
+	write_cmos_sensor(0xf8, 0x38);
+	write_cmos_sensor(0xf9, 0x82);
+	write_cmos_sensor(0xfa, 0x00);
+	write_cmos_sensor(0xfd, 0x80);
+	write_cmos_sensor(0xfc, 0x81);
+	write_cmos_sensor(0xf7, 0x01);
+	write_cmos_sensor(0xfc, 0x80);
+	write_cmos_sensor(0xfc, 0x80);
+	write_cmos_sensor(0xfc, 0x80);
+	write_cmos_sensor(0xfc, 0x80);
+	write_cmos_sensor(0xfc, 0x8e);
+	write_cmos_sensor(0xf3, 0x30);
+	write_cmos_sensor(0xfe, 0x02);
+}
+
+static void gc02m1_otp_close(void)
+{
+	write_cmos_sensor(0xf7, 0x01);
+	write_cmos_sensor(0xfe, 0x00);
+}
+
+static u16 gc02m1_otp_read_group(void)
+{
+
+	u16 data = 0;
+
+	write_cmos_sensor(0x17, 0x80);
+	write_cmos_sensor(0xf3, 0x34);
+	data = read_cmos_sensor(0x19);
+	pr_info("read gc02m1_otp addr = 0x%x, data = 0x%x\n", 0x80, data);
+	return data;
+}
+static u16 read_gc02m1_otp(void)
+{
+    u16 Vendor_ID = 0;
+	u16 mode_set = 0;
+	gc02m1_otp_init();
+	Vendor_ID = gc02m1_otp_read_group();
+	switch (Vendor_ID) {
+		case 0x54:
+			mode_set = 0;
+			break;
+		case 0x08:
+	        mode_set = 2;
+			break;
+		case 0x55:
+			mode_set = 3;
+			break;
+		default:
+			LOG_INF("gc02m1_otp Vendor ID error");
+			mode_set = -1;
+			break;
+		}
+
+	gc02m1_otp_close();
+    return mode_set;
+}
+
 static kal_uint32 return_sensor_id(void)
 {
-	return ((read_cmos_sensor(0xf0) << 8) | read_cmos_sensor(0xf1));
+	return ((read_cmos_sensor(0xf0) << 8) | read_cmos_sensor(0xf1)+(read_gc02m1_otp()));
 }
+
 
 static void set_max_framerate(UINT16 framerate, kal_bool min_framelength_en)
 {

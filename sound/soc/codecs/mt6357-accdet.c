@@ -31,9 +31,19 @@
 #include <linux/mfd/mt6357/core.h>
 #include "mt6357-accdet.h"
 #include "mt6357.h"
+#ifdef CONFIG_SWITCH
+#include <linux/switch.h>
+#endif
 /* grobal variable definitions */
 #define NO_USE_COMPARATOR	1
 
+/*hs04 code for DEAL6398A-1876 by tangsumian at 20221012 start*/
+#ifdef CONFIG_HEADSET_IN_OUT_NOTIFY
+#include <linux/notifier.h>
+#define HEADSET_PLUGOUT_STATE	0
+#define HEADSET_PLUGIN_STATE	1
+#endif
+/*hs04 code for DEAL6398A-1876 by tangsumian at 20221012 end*/
 #if NO_USE_COMPARATOR
 /* for headset pole type definition  */
 #define TYPE_AB_00		(0x00)/* 3-pole or hook_switch */
@@ -189,6 +199,10 @@ static char accdet_log_buf[1280];
 static bool debug_thread_en;
 static bool dump_reg;
 static struct task_struct *thread;
+#ifdef CONFIG_SWITCH
+//add for switch to show the headset plug status
+static struct switch_dev accdet_data;
+#endif
 
 static u32 button_press_debounce = 0x400;
 
@@ -801,6 +815,51 @@ static void send_key_event(u32 keycode, u32 flag)
 		break;
 	}
 }
+/*hs04 code for DEAL6398A-1876 by tangsumian at 20221012 start*/
+#ifdef CONFIG_HEADSET_IN_OUT_NOTIFY
+static BLOCKING_NOTIFIER_HEAD(headset_notifier);
+/**
+*Name: <headset_notifier_register>
+*Author: <huangzhongjie>
+*Date: <20220809>
+*Param: <headset_notifier>
+*Return: <int execute result>
+*Purpose: <Register the notification chain for broadcasting>
+*/
+int headset_notifier_register(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&headset_notifier, nb);
+}
+EXPORT_SYMBOL(headset_notifier_register);
+
+/**
+*Name: <headset_notifier_register>
+*Author: <huangzhongjie>
+*Date: <20220809>
+*Param: <headset_notifier>
+*Return: <int execute result>
+*Purpose: <Unregister when device is removed>
+*/
+int headset_notifier_unregister(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_unregister(&headset_notifier, nb);
+}
+EXPORT_SYMBOL(headset_notifier_unregister);
+
+/**
+*Name: <headset_notifier_register>
+*Author: <huangzhongjie>
+*Date: <20220809>
+*Param: <headset_notifier>
+*Return: <int execute result>
+*Purpose: <Notification of headphone insertion and removal>
+*/
+int  headset_notifier_call_chain(unsigned long val, void *v)
+{
+	return blocking_notifier_call_chain(&headset_notifier, val, v);
+}
+#endif
+/*hs04 code for DEAL6398A-1876 by tangsumian at 20221012 end*/
 
 static void send_status_event(u32 cable_type, u32 status)
 {
@@ -808,10 +867,19 @@ static void send_status_event(u32 cable_type, u32 status)
 
 	switch (cable_type) {
 	case HEADSET_NO_MIC:
-		if (status)
+/*hs04 code for DEAL6398A-1876 by tangsumian at 20221012 start*/
+		if (status) {
 			report = SND_JACK_HEADPHONE;
-		else
+#ifdef CONFIG_HEADSET_IN_OUT_NOTIFY
+			headset_notifier_call_chain(HEADSET_PLUGIN_STATE, NULL);
+#endif
+		} else {
 			report = 0;
+#ifdef CONFIG_HEADSET_IN_OUT_NOTIFY
+			headset_notifier_call_chain(HEADSET_PLUGOUT_STATE, NULL);
+#endif
+		}
+/*hs04 code for DEAL6398A-1876 by tangsumian at 20221012 end*/
 		snd_soc_jack_report(&accdet->jack, report,
 				SND_JACK_HEADPHONE);
 		/* when plug 4-pole out, if both AB=3 AB=0 happen,3-pole plug
@@ -826,6 +894,9 @@ static void send_status_event(u32 cable_type, u32 status)
 		}
 		pr_info("accdet HEADPHONE(3-pole) %s\n",
 			status ? "PlugIn" : "PlugOut");
+#ifdef CONFIG_SWITCH
+		switch_set_state(&accdet_data, status == 0 ? NO_DEVICE : cable_type);
+#endif
 		break;
 	case HEADSET_MIC:
 		/* when plug 4-pole out, 3-pole plug out should also be
@@ -836,11 +907,19 @@ static void send_status_event(u32 cable_type, u32 status)
 			snd_soc_jack_report(&accdet->jack, report,
 					SND_JACK_HEADPHONE);
 		}
-		if (status)
+/*hs04 code for DEAL6398A-1876 by tangsumian at 20221012 start*/
+		if (status) {
 			report = SND_JACK_MICROPHONE;
-		else
+#ifdef CONFIG_HEADSET_IN_OUT_NOTIFY
+			headset_notifier_call_chain(HEADSET_PLUGIN_STATE, NULL);
+#endif
+		} else {
 			report = 0;
-
+#ifdef CONFIG_HEADSET_IN_OUT_NOTIFY
+			headset_notifier_call_chain(HEADSET_PLUGOUT_STATE, NULL);
+#endif
+		}
+/*hs04 code for DEAL6398A-1876 by tangsumian at 20221012 end*/
 		snd_soc_jack_report(&accdet->jack, report,
 				SND_JACK_MICROPHONE);
 		pr_info("accdet MICROPHONE(4-pole) %s\n",
@@ -852,6 +931,9 @@ static void send_status_event(u32 cable_type, u32 status)
 		 * micbias, it will cause key no response
 		 */
 		del_timer_sync(&micbias_timer);
+#ifdef CONFIG_SWITCH
+		switch_set_state(&accdet_data, status == 0 ? NO_DEVICE : cable_type);
+#endif
 		break;
 	case LINE_OUT_DEVICE:
 		if (status)
@@ -2109,6 +2191,17 @@ static int accdet_probe(struct platform_device *pdev)
 	struct mt6397_chip *mt6397_chip = dev_get_drvdata(pdev->dev.parent);
 	const struct of_device_id *of_id =
 				of_match_device(accdet_of_match, &pdev->dev);
+#ifdef CONFIG_SWITCH
+	pr_info("%s() begin!\n", __func__);
+	accdet_data.name = "earjack";
+	accdet_data.index = 0;
+	accdet_data.state = 0;
+	ret = switch_dev_register(&accdet_data);
+	if (ret) {
+		pr_notice("%s switch_dev_register fail:%d!\n", __func__, ret);
+		return -1;
+	}
+#endif
 	if (!of_id) {
 		dev_dbg(&pdev->dev, "Error: No device match found\n");
 		return -ENODEV;

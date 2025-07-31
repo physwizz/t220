@@ -2,13 +2,12 @@
 /*
  * Copyright (C) 2020.
  */
-/*TabA7 Lite code for OT8-89 add USB temp protection by wenyaqi at 20201213 start*/
+/*HS03s for SR-AL5625-01-250 by wenyaqi at 20210426 start*/
 #include <linux/kernel.h>
 
 #ifndef __VBUS_CTRL__
 #define __VBUS_CTRL__
 
-/*TabA7 Lite code for P210115-00631 by wenyaqi at 20210115 start*/
 #define CHG_ALERT_HOT_TEMP  70	//70degC
 #define CHG_ALERT_WARM_TEMP 60	//60degC
 #define CHG_ALERT_HOT_STATE  1	//>70degC
@@ -29,7 +28,6 @@ struct vbus_ctrl_dev {
 };
 
 extern int mtktsusb_get_hw_temp(void);
-/*TabA7 Lite code for P210115-00631 by wenyaqi at 20210115 end*/
 
 #endif
-/*TabA7 Lite code for OT8-89 add USB temp protection by wenyaqi at 20201213 end*/
+/*HS03s for SR-AL5625-01-250 by wenyaqi at 20210426 end*/

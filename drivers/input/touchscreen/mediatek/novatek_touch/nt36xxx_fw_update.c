@@ -23,6 +23,11 @@
 
 #include "nt36xxx.h"
 
+/*TabA7 Lite code for OT8-5170 by gaozhengwei at 20210927 start*/
+#include <mt-plat/mtk_boot_common.h>
+int tpd_get_boot_mode(void);
+/*TabA7 Lite code for OT8-5170 by gaozhengwei at 20210927 end*/
+
 #if BOOT_UPDATE_FIRMWARE
 
 #define SIZE_4KB 4096
@@ -1090,6 +1095,15 @@ return:
 int32_t nvt_update_firmware(const char *firmware_name)
 {
 	int32_t ret = 0;
+
+	/*TabA7 Lite code for OT8-5170 by gaozhengwei at 20210927 start*/
+	if ((tpd_get_boot_mode() == META_BOOT)
+		|| (tpd_get_boot_mode() == ADVMETA_BOOT)) {
+		ret = -EIO;
+		input_err(true, &ts->client->dev, "%s : skip request firmware in meta mode\n", __func__);
+		goto request_firmware_fail;
+	}
+	/*TabA7 Lite code for OT8-5170 by gaozhengwei at 20210927 end*/
 
 	if (firmware_name == NULL || strlen(firmware_name) == 0) {
 		ret = -EINVAL;

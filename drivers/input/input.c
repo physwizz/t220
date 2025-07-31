@@ -193,6 +193,7 @@ static void input_repeat_key(struct timer_list *t)
 			input_value_sync
 		};
 
+		input_set_timestamp(dev, ktime_get());
 		input_pass_values(dev, vals, ARRAY_SIZE(vals));
 
 		if (dev->rep[REP_PERIOD])
@@ -682,7 +683,6 @@ void input_close_device(struct input_handle *handle)
 }
 EXPORT_SYMBOL(input_close_device);
 
-/*TabA7 Lite code for SR-AX3565-01-138 by zhaoxiangxiang at 20201203 start*/
 static int input_enable_device(struct input_dev *dev)
 {
 	int retval;
@@ -720,7 +720,6 @@ static int input_disable_device(struct input_dev *dev)
 	mutex_unlock(&dev->mutex);
 	return 0;
 }
-/*TabA7 Lite code for SR-AX3565-01-138 by zhaoxiangxiang at 20201203 end*/
 
 /*
  * Simulate keyup events for all keys that are marked as pressed.
@@ -743,6 +742,41 @@ static void input_dev_release_keys(struct input_dev *dev)
 		memset(dev->key, 0, sizeof(dev->key));
 	}
 }
+
+static ssize_t input_dev_show_enabled(struct device *dev,
+					 struct device_attribute *attr,
+					 char *buf)
+{
+	struct input_dev *input_dev = to_input_dev(dev);
+	return scnprintf(buf, PAGE_SIZE, "%d\n", !input_dev->disabled);
+}
+
+static ssize_t input_dev_store_enabled(struct device *dev,
+				       struct device_attribute *attr,
+				       const char *buf, size_t size)
+{
+	int ret;
+	bool enable;
+	struct input_dev *input_dev = to_input_dev(dev);
+
+	pr_info("mms input_dev_store_enabled\n");
+	ret = strtobool(buf, &enable);
+	if (ret)
+		return ret;
+
+	if (enable)
+		ret = input_enable_device(input_dev);
+	else
+		ret = input_disable_device(input_dev);
+
+	if (ret)
+		return ret;
+
+	return size;
+}
+
+static DEVICE_ATTR(enabled, S_IRUGO | S_IWUSR,
+		   input_dev_show_enabled, input_dev_store_enabled);
 
 /*
  * Prepare device for unregistering
@@ -1444,52 +1478,13 @@ static ssize_t input_dev_show_properties(struct device *dev,
 }
 static DEVICE_ATTR(properties, S_IRUGO, input_dev_show_properties, NULL);
 
-/*TabA7 Lite code for SR-AX3565-01-138 by zhaoxiangxiang at 20201203 start*/
-static ssize_t input_dev_show_enabled(struct device *dev,
-					 struct device_attribute *attr,
-					 char *buf)
-{
-	struct input_dev *input_dev = to_input_dev(dev);
-	return scnprintf(buf, PAGE_SIZE, "%d\n", !input_dev->disabled);
-}
-
-static ssize_t input_dev_store_enabled(struct device *dev,
-				       struct device_attribute *attr,
-				       const char *buf, size_t size)
-{
-	int ret;
-	bool enable;
-	struct input_dev *input_dev = to_input_dev(dev);
-
-	pr_info("mms input_dev_store_enabled\n");
-	ret = strtobool(buf, &enable);
-	if (ret)
-		return ret;
-
-	if (enable)
-		ret = input_enable_device(input_dev);
-	else
-		ret = input_disable_device(input_dev);
-
-	if (ret)
-		return ret;
-
-	return size;
-}
-
-static DEVICE_ATTR(enabled, S_IRUGO | S_IWUSR,
-		   input_dev_show_enabled, input_dev_store_enabled);
-/*TabA7 Lite code for SR-AX3565-01-138 by zhaoxiangxiang at 20201203 end*/
-
 static struct attribute *input_dev_attrs[] = {
 	&dev_attr_name.attr,
 	&dev_attr_phys.attr,
 	&dev_attr_uniq.attr,
 	&dev_attr_modalias.attr,
 	&dev_attr_properties.attr,
-/*TabA7 Lite code for SR-AX3565-01-138 by zhaoxiangxiang at 20201203 start*/
 	&dev_attr_enabled.attr,
-/*TabA7 Lite code for SR-AX3565-01-138 by zhaoxiangxiang at 20201203 end*/
 	NULL
 };
 

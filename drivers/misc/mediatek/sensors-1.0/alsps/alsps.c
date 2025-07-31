@@ -16,7 +16,6 @@ int last_als_report_data = -1;
 
 static struct alsps_init_info *alsps_init_list[MAX_CHOOSE_ALSPS_NUM] = {0};
 
-/*TabA7 Lite code for P210306-00215 by Hujincan at 20210310 start*/
 int als_data_report_t(int value, int status, int64_t time_stamp)
 {
 	int err = 0;
@@ -36,14 +35,15 @@ int als_data_report_t(int value, int status, int64_t time_stamp)
 		err = sensor_input_event(cxt->als_mdev.minor, &event);
 		cxt->is_get_valid_als_data_after_enable = true;
 	}
+	/* hs03s code for DEVAL5625-27 by xiongxiaoliang at 2021/05/01 start */
 	event.handle = ID_LIGHT;
 	event.flush_action = DATA_ACTION;
 	event.word[0] = value;
 	event.status = status;
 	err = sensor_input_event(cxt->als_mdev.minor, &event);
+	/* hs03s code for DEVAL5625-27 by xiongxiaoliang at 2021/05/01 end */
 	return err;
 }
-/*TabA7 Lite code for P210306-00215 by Hujincan at 20210310 end*/
 int als_data_report(int value, int status)
 {
 	return als_data_report_t(value, status, 0);

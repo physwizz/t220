@@ -32,7 +32,9 @@
 #endif
 
 #include "nt36xxx_mem_map.h"
-
+/*Tab A7 lite_U code for SR-AX3565U-01-4  by zhengkunbang at 20230807 start*/
+#include "hal_kpd.h"
+/*Tab A7 lite_U code for SR-AX3565U-01-4  by zhengkunbang at 20230807 end*/
 #ifdef CONFIG_MTK_SPI
 /* Please copy mt_spi.h file under mtk spi driver folder */
 #include "mt_spi.h"
@@ -323,8 +325,14 @@ struct nvt_ts_data {
 	struct delayed_work ito_test_wq;
 	struct workqueue_struct *ito_wq;
 	/*TabA7 Lite code for OT8-2503 by liufurong at 20210210 end*/
+	/*TabA7 Lite code for OT8-5211 by gaozhengwei at 20211021 start*/
+	struct mutex ito_lock;
+	/*TabA7 Lite code for OT8-5211 by gaozhengwei at 20211021 end*/
 	struct completion pm_completion;
 	bool pm_suspend;
+	/*Tab A7 lite_U code for SR-AX3565AU-21  by zhengkunbang at 20230810 start*/
+	bool tp_is_enabled;
+	/*Tab A7 lite_U code for SR-AX3565AU-21  by zhengkunbang at 20230810 end*/
 };
 
 #if NVT_TOUCH_PROC
@@ -375,8 +383,14 @@ enum NVT_TP_MODEL {
 	MODEL_LS_HSD_PID721F,
 	MODEL_HLT_MDT_PID7227,
 /*TabA7 Lite code for SR-AX3565-01-821 by liupengtao at 20210309 start*/
-	MODEL_QUNCHUANG_INX_PID7221
+	MODEL_QUNCHUANG_INX_PID7221,
 /*TabA7 Lite code for SR-AX3565-01-821 by liupengtao at 20210309 end*/
+	/*TabA7 Lite code for SR-AX3565-01-902 by yuli at 20220119 start*/
+	MODEL_LS_HSD_NTFPC_PID721F,
+	/*TabA7 Lite code for SR-AX3565-01-902 by yuli at 20220119 end*/
+	/*TabA7 Lite code for OT8-5318 by suyurui at 20220217 start*/
+	MODEL_TXD_MDT_PID724A,
+	/*TabA7 Lite code for OT8-5318 by suyurui at 20220217 end*/
 };
 /*TabA7 Lite code for SR-AX3565-01-714 by liupengtao at 20210204 end*/
 //u8 aot_enable;

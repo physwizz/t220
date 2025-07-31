@@ -119,21 +119,25 @@ int pe2_hal_set_efficiency_table(struct chg_alg_device *alg)
 	return 0;
 }
 
-/*TabA7 Lite code for OT8-4115 by wenyaqi at 20210316 start*/
 int pe2_hal_get_uisoc(struct chg_alg_device *alg)
 {
 	union power_supply_propval prop;
-	static struct power_supply *bat_psy;
-	int ret;
+	struct power_supply *bat_psy = NULL;
+	int ret = 50;
 	struct mtk_pe20 *pe2;
 
 	if (alg == NULL)
 		return -EINVAL;
 
 	pe2 = dev_get_drvdata(&alg->dev);
-	if (bat_psy == NULL)
-		bat_psy = devm_power_supply_get_by_phandle(&pe2->pdev->dev,
-						       "gauge");
+	bat_psy = pe2->bat_psy;
+
+	if (bat_psy == NULL || IS_ERR(bat_psy)) {
+		pr_notice("%s retry to get pe2->bat_psy\n", __func__);
+		bat_psy = devm_power_supply_get_by_phandle(&pe2->pdev->dev, "gauge");
+		pe2->bat_psy = bat_psy;
+	}
+
 	if (bat_psy == NULL || IS_ERR(bat_psy)) {
 		pr_notice("%s Couldn't get bat_psy\n", __func__);
 		ret = 50;
@@ -143,22 +147,20 @@ int pe2_hal_get_uisoc(struct chg_alg_device *alg)
 		ret = prop.intval;
 	}
 
-	pr_notice("%s:%d\n", __func__,
-		ret);
+	//pr_notice("%s:%d\n", __func__,ret);
 	return ret;
 }
 
 int pe2_hal_get_charger_type(struct chg_alg_device *alg)
 {
 	struct mtk_charger *info = NULL;
-	static struct power_supply *chg_psy;
+	struct power_supply *chg_psy = NULL;
 	int ret = 0;
 
 	if (alg == NULL)
 		return -EINVAL;
 
-	if (chg_psy == NULL)
-		chg_psy = power_supply_get_by_name("mtk-master-charger");
+	chg_psy = power_supply_get_by_name("mtk-master-charger");
 	if (chg_psy == NULL || IS_ERR(chg_psy)) {
 		pr_notice("%s Couldn't get chg_psy\n", __func__);
 		ret = -EINVAL;
@@ -170,10 +172,9 @@ int pe2_hal_get_charger_type(struct chg_alg_device *alg)
 			ret = info->chr_type;
 	}
 
-	pr_notice("%s type:%d\n", __func__, ret);
+	//pr_notice("%s type:%d\n", __func__, ret);
 	return ret;
 }
-/*TabA7 Lite code for OT8-4115 by wenyaqi at 20210316 end*/
 
 int pe2_hal_set_mivr(struct chg_alg_device *alg, enum chg_idx chgidx, int uV)
 {
@@ -277,7 +278,7 @@ int pe2_hal_is_charger_enable(struct chg_alg_device *alg,
 	else if (chgidx == CHG2  && hal->chg2_dev != NULL)
 		ret = charger_dev_is_enabled(hal->chg2_dev, en);
 
-	pr_notice("%s idx:%d %d\n", __func__, chgidx, *en);
+//	pr_notice("%s idx:%d %d\n", __func__, chgidx, *en);
 	return 0;
 }
 
@@ -315,8 +316,8 @@ static int get_pmic_vbus(int *vchr)
 	}
 	*vchr = prop.intval * 1000;
 
-	pr_notice("%s vbus:%d\n", __func__,
-		prop.intval);
+//	pr_notice("%s vbus:%d\n", __func__,
+//		prop.intval);
 	return ret;
 }
 
@@ -352,8 +353,14 @@ int pe2_hal_get_vbat(struct chg_alg_device *alg)
 
 	pe2 = dev_get_drvdata(&alg->dev);
 
-	bat_psy = devm_power_supply_get_by_phandle(&pe2->pdev->dev,
-						       "gauge");
+	bat_psy = pe2->bat_psy;
+
+	if (bat_psy == NULL || IS_ERR(bat_psy)) {
+		pr_notice("%s retry to get pe2->bat_psy\n", __func__);
+		bat_psy = devm_power_supply_get_by_phandle(&pe2->pdev->dev, "gauge");
+		pe2->bat_psy = bat_psy;
+	}
+
 	if (bat_psy == NULL || IS_ERR(bat_psy)) {
 		pr_notice("%s Couldn't get bat_psy\n", __func__);
 		ret = 3999;
@@ -363,8 +370,8 @@ int pe2_hal_get_vbat(struct chg_alg_device *alg)
 		ret = prop.intval;
 	}
 
-	pr_debug("%s:%d\n", __func__,
-		ret);
+//	pr_debug("%s:%d\n", __func__,
+//		ret);
 	return ret;
 }
 
@@ -379,8 +386,14 @@ int pe2_hal_get_ibat(struct chg_alg_device *alg)
 		return -EINVAL;
 
 	pe2 = dev_get_drvdata(&alg->dev);
-	bat_psy = devm_power_supply_get_by_phandle(&pe2->pdev->dev,
-						       "gauge");
+	bat_psy = pe2->bat_psy;
+
+	if (bat_psy == NULL || IS_ERR(bat_psy)) {
+		pr_notice("%s retry to get pe2->bat_psy\n", __func__);
+		bat_psy = devm_power_supply_get_by_phandle(&pe2->pdev->dev, "gauge");
+		pe2->bat_psy = bat_psy;
+	}
+
 	if (bat_psy == NULL || IS_ERR(bat_psy)) {
 		pr_notice("%s Couldn't get bat_psy\n", __func__);
 		ret = 0;
@@ -390,8 +403,8 @@ int pe2_hal_get_ibat(struct chg_alg_device *alg)
 		ret = prop.intval;
 	}
 
-	pr_debug("%s:%d\n", __func__,
-		ret);
+//	pr_debug("%s:%d\n", __func__,
+//		ret);
 	return ret;
 }
 
@@ -439,7 +452,7 @@ int pe2_hal_set_charging_current(struct chg_alg_device *alg,
 		charger_dev_set_charging_current(hal->chg1_dev, ua);
 	else if (chgidx == CHG2 && hal->chg2_dev != NULL)
 		charger_dev_set_charging_current(hal->chg2_dev, ua);
-	pr_notice("%s idx:%d %d\n", __func__, chgidx, ua);
+//	pr_notice("%s idx:%d %d\n", __func__, chgidx, ua);
 
 	return 0;
 }
@@ -457,7 +470,7 @@ int pe2_hal_get_charging_current(struct chg_alg_device *alg,
 		charger_dev_get_charging_current(hal->chg1_dev, ua);
 	else if (chgidx == CHG2 && hal->chg2_dev != NULL)
 		charger_dev_get_charging_current(hal->chg2_dev, ua);
-	pr_notice("%s idx:%d %d\n", __func__, chgidx, ua);
+//	pr_notice("%s idx:%d %d\n", __func__, chgidx, ua);
 
 	return 0;
 }
@@ -475,7 +488,7 @@ int pe2_hal_set_input_current(struct chg_alg_device *alg,
 		charger_dev_set_input_current(hal->chg1_dev, ua);
 	else if (chgidx == CHG2 && hal->chg2_dev != NULL)
 		charger_dev_set_input_current(hal->chg2_dev, ua);
-	pr_notice("%s idx:%d %d\n", __func__, chgidx, ua);
+//	pr_notice("%s idx:%d %d\n", __func__, chgidx, ua);
 
 	return 0;
 }
@@ -532,8 +545,8 @@ int pe2_hal_charger_enable_chip(struct chg_alg_device *alg,
 		pr_notice("%s idx:%d %d test\n", __func__, chgidx, enable);
 		ret = charger_dev_enable_chip(hal->chg2_dev, enable);
 	}
-	pr_notice("%s idx:%d %d %d\n", __func__, chgidx, enable,
-		hal->chg2_dev != NULL);
+//	pr_notice("%s idx:%d %d %d\n", __func__, chgidx, enable,
+//		hal->chg2_dev != NULL);
 	return 0;
 }
 
@@ -551,7 +564,7 @@ int pe2_hal_set_eoc_current(struct chg_alg_device *alg,
 		ret = charger_dev_set_eoc_current(hal->chg1_dev, uA);
 	if (chgidx == CHG2 && hal->chg2_dev != NULL)
 		ret = charger_dev_set_eoc_current(hal->chg2_dev, uA);
-	pr_notice("%s idx:%d %d\n", __func__, chgidx, uA);
+//	pr_notice("%s idx:%d %d\n", __func__, chgidx, uA);
 	return 0;
 }
 
@@ -569,7 +582,7 @@ int pe2_hal_enable_termination(struct chg_alg_device *alg,
 		ret = charger_dev_enable_termination(hal->chg1_dev, enable);
 	if (chgidx == CHG2 && hal->chg2_dev != NULL)
 		ret = charger_dev_enable_termination(hal->chg2_dev, enable);
-	pr_notice("%s idx:%d %d\n", __func__, chgidx, enable);
+//	pr_notice("%s idx:%d %d\n", __func__, chgidx, enable);
 	return 0;
 }
 
@@ -587,7 +600,7 @@ int pe2_hal_get_min_charging_current(struct chg_alg_device *alg,
 		ret = charger_dev_get_min_charging_current(hal->chg1_dev, uA);
 	if (chgidx == CHG2 && hal->chg2_dev != NULL)
 		ret = charger_dev_get_min_charging_current(hal->chg2_dev, uA);
-	pr_notice("%s idx:%d %d\n", __func__, chgidx, *uA);
+//	pr_notice("%s idx:%d %d\n", __func__, chgidx, *uA);
 	return 0;
 }
 
@@ -605,7 +618,7 @@ int pe2_hal_get_min_input_current(struct chg_alg_device *alg,
 		ret = charger_dev_get_min_input_current(hal->chg1_dev, uA);
 	if (chgidx == CHG2 && hal->chg2_dev != NULL)
 		ret = charger_dev_get_min_input_current(hal->chg2_dev, uA);
-	pr_notice("%s idx:%d %d\n", __func__, chgidx, *uA);
+//	pr_notice("%s idx:%d %d\n", __func__, chgidx, *uA);
 	return 0;
 }
 

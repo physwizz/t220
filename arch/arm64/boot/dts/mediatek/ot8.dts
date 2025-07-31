@@ -91,14 +91,16 @@
 		pinctrl-0 = <&dsi_active>;
 	};
 	/*TabA7 Lite code for OT8-54 by Hujincan at 20201126 end*/
+        /*TabA7 Lite code for OT8S-7 by chengerui at 20220302 start*/
 	grdm-dev {
 		compatible = "sec,guardianm";
-		/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 start */
+		/* TabA7 Lite code for P210218-01007 by chengerui at 20220314 start */
 		clocks = <&infracfg_ao CLK_IFR_SPI0>;
 		clock-names = "grdm-clk";
-		/* TabA7 Lite code for P210218-01007 by wangweiran at 20210223 end */
-		// sec,gpio_power = <&pio 40 1>;
+		/* TabA7 Lite code for P210218-01007 by chengerui at 20220314 end */
+		sec,gpio_power = <&pio 159 1>;
     };
+        /*TabA7 Lite code for OT8S-7 by chengerui at 20220302 end*/
 };
 
 &pio {
@@ -128,16 +130,11 @@
 };
 
 &i2c0 {
-	hxchipset_touch@48 {
-		compatible = "himax,hxcommon" ;
-		reg = < 0x48 > ;
+	cap_touch@38 {
+		compatible = "mediatek,cap_touch" ;
+		reg = < 0x38 > ;
 		status = "okay" ;
 	};
-	focaltech_touch@40 {
-		compatible = "mediatek,focaltech_touch" ;
-		reg = < 0x40 > ;
-		status = "okay" ;
-        };
 };
 
 &i2c3 {
@@ -154,6 +151,11 @@
 		regulator-max-microvolt = <1300000>;
 		vsel_pin = <1>;
 	};
+	focaltech_touch@40 {
+		compatible = "mediatek,focaltech_touch" ;
+		reg = < 0x40 > ;
+		status = "okay" ;
+    };
 };
 
 &i2c6 {
@@ -171,21 +173,13 @@
 		status = "okay";
 	};
 
-	aw87519@5b {
-		compatible = "awinic,aw87519_right";
-		reg = <0x5b>;
-		reset-gpio = <&pio 153 0>;
-		status = "okay";
-	};
 };
 /* TOUCH start */
 &touch {
-	/*TabA7 Lite code for P210204-06765 by gaozhengwei at 20210215 start*/
-	/delete-property/ compatible;
+/delete-property/ compatible;
 	compatible = "mediatek,touch";
-
 	tpd-resolution = <800 1340>;
-	/*TabA7 Lite code for P210204-06765 by gaozhengwei at 20210215 end*/
+
 	use-tpd-button = <0>;
 	tpd-key-num = <3>;
 	tpd-key-local= <139 172 158 0>;
@@ -313,15 +307,16 @@
 };
 /* accdet end */
 
-/* FINGERPRINT start */
+/* FINGERPRINT start
 &spi0 {
 	#address-cells = <1>;
 	#size-cells = <0>;
-	grdm-spi@0 {
-		compatible = "sec,grdm-spi";
-		reg = <0x0>;
+	fingerprint@0 {
+		compatible = "goodix,goodix-fp";
+		reg = <0>;
+		spi-max-frequency = <8000000>;
+		netlink-event = <30>;
 		status = "okay";
-		spi-max-frequency = <10000000>;
 	};
 };
 
@@ -351,7 +346,7 @@
 		};
 	};
 };
-/* FINGERPRINT end */
+FINGERPRINT end */
 
 /* IRTX GPIO end */
 &irtx_pwm {
@@ -583,9 +578,12 @@
 		};
 	};
 };
+
+/* #include <ot8/cust.dtsi> */
+/* modify code for O8 */
 /* FLASHLIGHT end */
 
-#include "ot8/cust.dtsi"
+#include "mediatek/ot8/cust.dtsi"
 #include "mediatek/cust_mt8768_camera.dtsi"
 
 &msdc1 {
@@ -608,3 +606,4 @@
 	mt6370pd,intr_gpio = <&pio 41 0x0>;
 };
 /*End of this file, DO NOT ADD ANYTHING HERE*/
+

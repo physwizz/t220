@@ -23,6 +23,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/input/sec_cmd.h>
+
 /*debug macros */
 #define TPD_DEBUG
 #define TPD_DEBUG_CODE
@@ -97,6 +98,7 @@ struct tpd_device {
 	struct timer_list timer;
 	struct tasklet_struct tasklet;
 	int btn_state;
+	int tp_is_enabled;
 };
 struct tpd_key_dim_local {
 	int key_x;
@@ -149,7 +151,11 @@ ssize_t tpd_virtual_key(char *buf);
 extern char *mtp_chip_name;
 extern int mtp_fw_ver;
 extern int mtk_touch_get_usb_status(void);
+
+#if 0
 extern int smart_wakeup_open_flag;
+#endif
+
 
 extern int tpd_driver_add(struct tpd_driver_t *tpd_drv);
 extern int tpd_driver_remove(struct tpd_driver_t *tpd_drv);

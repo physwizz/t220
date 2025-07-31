@@ -18,9 +18,9 @@
 #define MTK_CHR_EXIST			1
 #define KEEP_100_PERCENT		1
 #define R_FG_VALUE				5	/* mOhm */
-/*TabA7 Lite code for SR-AX3565-01-181 set built-in battery mode by wenyaqi at 20210109 start*/
+/*HS03s for SR-AL5625-01-374 by wenyaqi at 20210429 start*/
 #define EMBEDDED_SEL			1
-/*TabA7 Lite code for SR-AX3565-01-181 set built-in battery mode by wenyaqi at 20210109 end*/
+/*HS03s for SR-AL5625-01-374 by wenyaqi at 20210429 end*/
 #define PMIC_SHUTDOWN_CURRENT	20	/* 0.01 mA */
 #define FG_METER_RESISTANCE		100
 #define CAR_TUNE_VALUE			100 /*1.00 */
@@ -256,6 +256,9 @@
 #define UI_LOW_LIMIT_VTH4	34500
 #define UI_LOW_LIMIT_TIME	99999
 
+#define MOVING_BATTEMP_EN	1
+#define MOVING_BATTEMP_THR	20
+
 /* Qmax for battery  */
 #define Q_MAX_L_CURRENT		0
 #define Q_MAX_H_CURRENT		10000
@@ -282,21 +285,19 @@
 /*#define MTK_GET_BATTERY_ID_BY_GPIO*/
 
 /* Qmax for battery  */
-/*TabA7 Lite code for P210128-01100 modify time_to_full_now node by wenyaqi at 20210203 start*/
 int g_Q_MAX[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
 	/*bat1,   bat2,   bat3,    bat4*/
-	{ 4986, 5054, 4986, 4986},/*T0*/
-	{ 5064, 5082, 5064, 4986},/*T1*/
-	{ 5028, 5179, 5028, 5028},/*T2*/
-	{ 5051, 5154, 5051, 5051},/*T3*/
-	{ 5050, 5074, 5050, 5050},/*T4*/
-	{ 5028, 5090, 5028, 5028},/*T5*/
-	{ 5018, 5080, 5018, 5018},/*T6*/
-	{ 5008, 5070, 5008, 5008},/*T7*/
-	{ 4998, 5060, 4998, 4998},/*T8*/
-	{ 4988, 5050, 4998, 4998} /*T9*/
+	{ 2946, 2712, 2490, 1965},/*T0*/
+	{ 2796, 2851, 2468, 1984},/*T1*/
+	{ 2718, 2432, 2310, 1946},/*T2*/
+	{ 2535, 1991, 1858, 1873},/*T3*/
+	{ 2523, 1960, 1843, 1851},/*T4*/
+	{ 2211, 1652, 1533, 1541},/*T5*/
+	{ 2201, 1642, 1523, 1531},/*T6*/
+	{ 2191, 1632, 1513, 1521},/*T7*/
+	{ 2181, 1622, 1503, 1511},/*T8*/
+	{ 2171, 1612, 1493, 1501} /*T9*/
 };
-/*TabA7 Lite code for P210128-01100 modify time_to_full_now node by wenyaqi at 20210203 end*/
 
 int g_Q_MAX_H_CURRENT[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
 	/*bat1,   bat2,   bat3,    bat4*/
@@ -432,9 +433,15 @@ int g_temperature[MAX_TABLE] = {
 #define BAT_NTC_47 0
 
 #if (BAT_NTC_10 == 1)
-/*Tab A7 Lite code for SR-AX3565-01-55 modify bat temp ntc by wenyaqi at 20201119 start*/
+#if defined(CONFIG_HQ_PROJECT_HS03S)
+#define RBAT_PULL_UP_R             16900
+#elif defined(CONFIG_HQ_PROJECT_HS04)
+#define RBAT_PULL_UP_R             16900
+#elif defined(CONFIG_HQ_PROJECT_OT8)
 #define RBAT_PULL_UP_R             390000
-/*Tab A7 Lite code for SR-AX3565-01-55 modify bat temp ntc by wenyaqi at 20201119 end*/
+#else
+#define RBAT_PULL_UP_R             24000
+#endif
 #endif
 
 #if (BAT_NTC_47 == 1)
@@ -446,8 +453,56 @@ int g_temperature[MAX_TABLE] = {
 #define BIF_NTC_R 16000
 
 #if (BAT_NTC_10 == 1)
-/*Tab A7 Lite code for SR-AX3565-01-55 modify bat temp ntc by wenyaqi at 20201119 start*/
+#if defined(CONFIG_HQ_PROJECT_HS03S)
 struct fuelgauge_temperature Fg_Temperature_Table[21] = {
+		{-40 , 205200},
+		{-35 , 154800},
+		{-30 , 117900},
+		{-25 , 90690 },
+		{-20 , 70370 },
+		{-15 , 55070 },
+		{-10 , 43440 },
+		{-5	 , 34530 },
+		{0	 , 27640 },
+		{5	 , 22270 },
+		{10	 , 18060 },
+		{15	 , 14740 },
+		{20	 , 12110 },
+		{25	 , 10000 },
+		{30	 , 8309  },
+		{35	 , 6941  },
+		{40	 , 5828  },
+		{45	 , 4916  },
+		{50	 , 4165  },
+		{55	 , 3543  },
+		{60	 , 3027  }
+};
+#elif defined(CONFIG_HQ_PROJECT_HS04)
+struct fuelgauge_temperature Fg_Temperature_Table[21] = {
+		{-40 , 205200},
+		{-35 , 154800},
+		{-30 , 117900},
+		{-25 , 90690 },
+		{-20 , 70370 },
+		{-15 , 55070 },
+		{-10 , 43440 },
+		{-5	 , 34530 },
+		{0	 , 27640 },
+		{5	 , 22270 },
+		{10	 , 18060 },
+		{15	 , 14740 },
+		{20	 , 12110 },
+		{25	 , 10000 },
+		{30	 , 8309  },
+		{35	 , 6941  },
+		{40	 , 5828  },
+		{45	 , 4916  },
+		{50	 , 4165  },
+		{55	 , 3543  },
+		{60	 , 3027  }
+};
+#elif defined(CONFIG_HQ_PROJECT_OT8)
+struct fuelgauge_temperature Fg_Temperature_Table[25] = {
 		{-40, 4397100},
 		{-35, 3088600},
 		{-30, 2197200},
@@ -468,9 +523,63 @@ struct fuelgauge_temperature Fg_Temperature_Table[21] = {
 		{45, 40904},
 		{50, 33195},
 		{55, 27091},
-		{60, 22224}
+		{60, 22224},
+		{65, 18323},
+		{70, 15184},
+		{75, 12635},
+		{80, 10566}
 };
-/*Tab A7 Lite code for SR-AX3565-01-55 modify bat temp ntc by wenyaqi at 20201119 end*/
+#elif defined(CONFIG_HQ_PROJECT_O22) || defined(CONFIG_HQ_PROJECT_O8)
+/* hs14 code for  SR-AL6528A-01-313 by zhouyuhang at 20220907 start*/
+struct fuelgauge_temperature Fg_Temperature_Table[21] = {
+		{-40, 205200},
+		{-35, 154800},
+		{-30, 117900},
+		{-25, 90690},
+		{-20, 70370},
+		{-15, 55070},
+		{-10, 43440},
+		{-5, 34530},
+		{0, 27640},
+		{5, 22270},
+		{10, 18060},
+		{15, 14740},
+		{20, 12110},
+		{25, 10000},
+		{30, 8309},
+		{35, 6941},
+		{40, 5828},
+		{45, 4916},
+		{50, 4165},
+		{55, 3543},
+		{60, 3027}
+};
+/* hs14 code for  SR-AL6528A-01-313 by zhouyuhang at 20220907 end*/
+#else
+struct fuelgauge_temperature Fg_Temperature_Table[21] = {
+		{-40, 195652},
+		{-35, 148171},
+		{-30, 113347},
+		{-25, 87559},
+		{-20, 68237},
+		{-15, 53650},
+		{-10, 42506},
+		{-5, 33892},
+		{0, 27219},
+		{5, 22021},
+		{10, 17926},
+		{15, 14674},
+		{20, 12081},
+		{25, 10000},
+		{30, 8315},
+		{35, 6948},
+		{40, 5834},
+		{45, 4917},
+		{50, 4161},
+		{55, 3535},
+		{60, 3014}
+};
+#endif
 #endif
 
 #if (BAT_NTC_47 == 1)

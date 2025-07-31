@@ -16,12 +16,25 @@
 char mtk_ccm_name[camera_info_size] = { 0 };
 char mtk_i2c_dump[camera_info_size] = { 0 };
 
-/**[AX3565] lisizhou add for camera info 2020/12/04/ start **/
+/* A03s code for SR-AL5625-01-324 by xuxianwei at 2021/04/22 start */
 #if CAM_MODULE_INFO_CONFIG
-  #define  CAM_MODULE_INFO "cameraModuleInfo"
-  char *cameraModuleInfo[3] = {NULL, NULL, NULL};
+#define  CAM_MODULE_INFO "cameraModuleInfo"
+  char *cameraModuleInfo[4] = {NULL, NULL, NULL,NULL};
 #endif
-/**[AX3565] lisizhou add for camera info 2020/12/04/  end **/
+/* A03s code for SR-AL5625-01-324 by xuxianwei at 2021/04/22 end */
+#ifdef CONFIG_HQ_PROJECT_HS03S
+/* hs03s code for AR-AL5625-01-502 by xuxianwei at 2021/05/27 start */
+char *cameraMateriaNumber[4] = {NULL, NULL, NULL, NULL};
+/* hs03s code for AR-AL5625-01-502 by xuxianwei at 2021/05/27 end */
+#endif
+
+/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 start*/
+#ifdef CONFIG_HQ_PROJECT_HS04
+char *cameraMateriaNumber[4] = {NULL, NULL, NULL, NULL};
+#endif
+/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 end*/
+/*hs14 code for SR-AL5628-01-161 Universal macro adaptation by xutengtao at 2022/9/22 start*/
+
 
 static int pdaf_type_info_read(struct seq_file *m, void *v)
 {
@@ -149,12 +162,17 @@ static ssize_t CAMERA_HW_Reg_Debug(
 		    sensorReg.RegAddr,
 		    sensorReg.RegData);
 
-		snprintf(
+		ret = snprintf(
 		    mtk_i2c_dump,
 		    sizeof(mtk_i2c_dump),
 		    "addr = 0x%08x, data = 0x%08x\n",
 		    sensorReg.RegAddr,
 		    sensorReg.RegData);
+		if (ret == 0) {
+			pr_info("Error! snprintf allocate 0");
+			ret = IMGSENSOR_RETURN_ERROR;
+			return ret;
+		}
 	}
 	return count;
 }
@@ -225,11 +243,16 @@ static ssize_t CAMERA_HW_Reg_Debug2(
 		    sensorReg.RegAddr,
 		    sensorReg.RegData);
 
-		snprintf(
+		ret = snprintf(
 		    mtk_i2c_dump,
 		    sizeof(mtk_i2c_dump),
 		    "addr = 0x%08x, data = 0x%08x\n",
 		    sensorReg.RegAddr, sensorReg.RegData);
+		if (ret == 0) {
+			pr_info("Error! snprintf allocate 0");
+			ret = IMGSENSOR_RETURN_ERROR;
+			return ret;
+		}
 	}
 
 	return count;
@@ -302,12 +325,17 @@ static ssize_t CAMERA_HW_Reg_Debug3(
 		    sensorReg.RegAddr,
 		    sensorReg.RegData);
 
-		snprintf(
+		ret = snprintf(
 		    mtk_i2c_dump,
 		    sizeof(mtk_i2c_dump),
 		    "addr = 0x%08x, data = 0x%08x\n",
 		    sensorReg.RegAddr,
 		    sensorReg.RegData);
+		if (ret == 0) {
+			pr_info("Error! snprintf allocate 0");
+			ret = IMGSENSOR_RETURN_ERROR;
+			return ret;
+		}
 	}
 
 	return count;
@@ -382,12 +410,17 @@ static ssize_t CAMERA_HW_Reg_Debug4(
 		    sensorReg.RegAddr,
 		    sensorReg.RegData);
 
-		snprintf(
+		ret = snprintf(
 		    mtk_i2c_dump,
 		    sizeof(mtk_i2c_dump),
 		    "addr = 0x%08x, data = 0x%08x\n",
 		    sensorReg.RegAddr,
 		    sensorReg.RegData);
+		if (ret == 0) {
+			pr_info("Error! snprintf allocate 0");
+			ret = IMGSENSOR_RETURN_ERROR;
+			return ret;
+		}
 	}
 
 	return count;
@@ -487,22 +520,64 @@ static const struct file_operations fcamera_proc_fops_set_pdaf_type = {
 	.write = proc_SensorType_write
 };
 
-/**[AX3565] lisizhou add for cam info 2020/12/04 start **/
+/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 start*/
+/* A03s code for SR-AL5625-01-324 by xuxianwei at 2021/04/22 start */
 #if CAM_MODULE_INFO_CONFIG
+#ifdef CONFIG_HQ_PROJECT_HS03S
 static ssize_t cameraModuleInfo_read
-    (struct file *file, char __user *page, size_t size, loff_t *ppos)
+(struct file *file, char __user *page, size_t size, loff_t *ppos)
 {
-    char buf[150] = {0};
-    int rc = 0;
-    snprintf(buf, 150,
-        "rear camera:%s\nfront camera:%s\n",
-        cameraModuleInfo[0],
-        cameraModuleInfo[1]);
+	char buf[300] = {0};
+	int rc = 0;
+	snprintf(buf, 300,
+	"rear camera:%s : %s\nfront camera:%s : %s\ndepth camera:%s : %s\nmacro camera:%s : %s\n",
+	cameraModuleInfo[0],cameraMateriaNumber[0],
+	cameraModuleInfo[1],cameraMateriaNumber[1],
+	cameraModuleInfo[2],cameraMateriaNumber[2],
+	cameraModuleInfo[3],cameraMateriaNumber[3]);
+	rc = simple_read_from_buffer(page, size, ppos, buf, strlen(buf));
 
-    rc = simple_read_from_buffer(page, size, ppos, buf, strlen(buf));
-
-    return rc;
+	return rc;
 }
+#endif
+
+
+/*hs04 code for DEVAL6398A-46 by renxinglin at  2022/10/14 start*/
+#ifdef CONFIG_HQ_PROJECT_HS04
+static ssize_t cameraModuleInfo_read
+(struct file *file, char __user *page, size_t size, loff_t *ppos)
+{
+	char buf[300] = {0};
+	int rc = 0;
+	snprintf(buf, 300,
+	"rear camera:%s : %s\nfront camera:%s : %s\ndepth camera:%s : %s\n",
+	cameraModuleInfo[0],cameraMateriaNumber[0],
+	cameraModuleInfo[1],cameraMateriaNumber[1],
+	cameraModuleInfo[2],cameraMateriaNumber[2]);
+	rc = simple_read_from_buffer(page, size, ppos, buf, strlen(buf));
+
+	return rc;
+}
+#endif
+/*hs04 code for DEVAL6398A-46 by renxinglin at  2022/10/14 end*/
+
+#ifdef CONFIG_HQ_PROJECT_OT8
+static ssize_t cameraModuleInfo_read
+	(struct file *file, char __user *page, size_t size, loff_t *ppos)
+{
+	char buf[150] = {0};
+	int rc = 0;
+	snprintf(buf, 150,
+		"rear camera:%s\nfront camera:%s\n",
+		cameraModuleInfo[0],
+		cameraModuleInfo[1]);
+
+	rc = simple_read_from_buffer(page, size, ppos, buf, strlen(buf));
+
+	return rc;
+}
+#endif
+/*HS04 code for DEVAL6398A-9 Universal macro adaptation by chenjun at 2022/7/2 end*/
 
 static ssize_t cameraModuleInfo_write
     (struct file *filp, const char __user *buffer,
@@ -517,7 +592,51 @@ static const struct file_operations cameraModuleInfo_fops = {
     .write = cameraModuleInfo_write,
 };
 #endif
-/**[AX3565] lisizhou add for cam info 2020/12/04 end **/
+
+#if defined(CONFIG_HQ_PROJECT_O22) || defined(CONFIG_HQ_PROJECT_O8)
+#define HQEXTEND_CAM_MODULE_INFO "cameraModuleInfo"
+static char hqextend_cameraModuleInfo[255];
+static struct proc_dir_entry *hqextend_proc_entry;
+
+static ssize_t hqextend_cameraModuleInfo_read
+    (struct file *file, char __user *page, size_t size, loff_t *ppos)
+{
+    char buf[255] = {0};
+    int rc = 0;
+    pr_info("E");
+    snprintf(buf, 255,
+            "%s",
+            hqextend_cameraModuleInfo);
+
+    rc = simple_read_from_buffer(page, size, ppos, buf, strlen(buf));
+    pr_info("X");
+
+    return rc;
+}
+static ssize_t hqextend_cameraModuleInfo_write
+    (struct file *filp, const char __user *buffer,
+    size_t count, loff_t *off)
+{
+    pr_info("E");
+    memset(hqextend_cameraModuleInfo,0,strlen(hqextend_cameraModuleInfo));
+    if (copy_from_user(hqextend_cameraModuleInfo, buffer, count))
+    {
+        pr_err("[cameradebug] write fail");
+        return -EFAULT;
+    }
+
+    pr_info("[cameradebug] buffer=%s",hqextend_cameraModuleInfo);
+    pr_info("X");
+    return 0;
+}
+
+static const struct file_operations hqextend_cameraModuleInfo_fops = {
+    .owner = THIS_MODULE,
+    .read = hqextend_cameraModuleInfo_read,
+    .write = hqextend_cameraModuleInfo_write,
+};
+#endif
+/* A03s code for SR-AL5625-01-324 by xuxianwei at 2021/04/22 end */
 
 enum IMGSENSOR_RETURN imgsensor_proc_init(void)
 {
@@ -533,11 +652,20 @@ enum IMGSENSOR_RETURN imgsensor_proc_init(void)
 
 	/* Camera information */
 	proc_create(PROC_CAMERA_INFO, 0664, NULL, &fcamera_proc_fops1);
-/**[AX3565] lisizhou add for cam info 2020/12/04 start **/
+/* A03s code for SR-AL5625-01-324 by xuxianwei at 2021/04/22 start */
 #if CAM_MODULE_INFO_CONFIG
     proc_create(CAM_MODULE_INFO, 0664, NULL, &cameraModuleInfo_fops);
 #endif
-/**[AX3565] lisizhou add for cam info 2020/12/04 end **/
-
-	return IMGSENSOR_RETURN_SUCCESS;
+#if defined(CONFIG_HQ_PROJECT_O22) || defined(CONFIG_HQ_PROJECT_O8)
+    hqextend_proc_entry=proc_create(HQEXTEND_CAM_MODULE_INFO,
+                                0664, NULL,
+                                &hqextend_cameraModuleInfo_fops);
+    if (NULL == hqextend_proc_entry) {
+            pr_err("[cameradebug]create hqextend_proc_entry-cameraModuleInfo failed");
+            remove_proc_entry(HQEXTEND_CAM_MODULE_INFO, NULL);
+    }
+#endif
+/*hs14 code for SR-AL5628-01-161 Universal macro adaptation by xutengtao at 2022/9/22 end*/
+/* A03s code for SR-AL5625-01-324 by xuxianwei at 2021/04/22 end */	
+return IMGSENSOR_RETURN_SUCCESS;
 }

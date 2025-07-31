@@ -23,53 +23,57 @@ ifneq ($(strip $(TARGET_NO_KERNEL)),true)
   mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
   current_dir := $(notdir $(patsubst %/,%,$(dir $(mkfile_path))))
 
+  kernel_build_config_suffix := .mtk
   ifeq ($(KERNEL_TARGET_ARCH),arm64)
+    kernel_build_config_suffix := $(kernel_build_config_suffix).aarch64
     ifeq ($(strip $(TARGET_KERNEL_USE_CLANG)),true)
-      include $(current_dir)/build.config.mtk.aarch64
     else
-      include $(current_dir)/build.config.mtk.aarch64.gcc
+      kernel_build_config_suffix := $(kernel_build_config_suffix).gcc
     endif
   else
+    kernel_build_config_suffix := $(kernel_build_config_suffix).arm
     ifeq ($(strip $(TARGET_KERNEL_USE_CLANG)),true)
-      include $(current_dir)/build.config.mtk.arm
     else
       $(error TARGET_KERNEL_USE_CLANG is not set)
     endif
   endif
+  ifeq ($(PLATFORM_VERSION),Tiramisu)
+    kernel_build_config_suffix := $(kernel_build_config_suffix).tiramisu
+  endif
+  include $(current_dir)/build.config$(kernel_build_config_suffix)
 
   ARGS := CROSS_COMPILE=$(CROSS_COMPILE)
-  ifneq ($(CLANG_TRIPLE),)
-    ARGS += CLANG_TRIPLE=$(CLANG_TRIPLE)
-  endif
-  ifneq ($(LD),)
-    ARGS += LD=$(LD)
-  endif
-  ifneq ($(LD_LIBRARY_PATH),)
-    ARGS += LD_LIBRARY_PATH=$(KERNEL_ROOT_DIR)/$(LD_LIBRARY_PATH)
-  endif
-  ifneq ($(NM),)
-    ARGS += NM=$(NM)
-  endif
-  ifneq ($(OBJCOPY),)
-    ARGS += OBJCOPY=$(OBJCOPY)
-  endif
-  ifeq ("$(CC)", "gcc")
-    CC :=
-  endif
-
-  ifneq ($(filter-out false,$(USE_CCACHE)),)
-    CCACHE_EXEC ?= /usr/bin/ccache
-    CCACHE_EXEC := $(abspath $(wildcard $(CCACHE_EXEC)))
-  else
-    CCACHE_EXEC :=
-  endif
-  ifneq ($(CCACHE_EXEC),)
-    ifneq ($(CC),)
-      ARGS += CCACHE_CPP2=yes CC='$(CCACHE_EXEC) $(CC)'
+  ifneq ($(LLVM),)
+    ARGS += LLVM=1
+    ifneq ($(filter-out false,$(USE_CCACHE)),)
+      CCACHE_EXEC ?= /usr/bin/ccache
+      CCACHE_EXEC := $(abspath $(wildcard $(CCACHE_EXEC)))
+    else
+      CCACHE_EXEC :=
     endif
-  else
-    ifneq ($(CC),)
-      ARGS += CC=$(CC)
+    ifneq ($(CCACHE_EXEC),)
+      ARGS += CCACHE_CPP2=yes CC='$(CCACHE_EXEC) clang'
+    else
+      ARGS += CC=clang
+    endif
+    ifneq ($(LLVM_IAS),)
+      ARGS += LLVM_IAS=$(LLVM_IAS)
+    endif
+    ifeq ($(HOSTCC),)
+      ifneq ($(CC),)
+        ARGS += HOSTCC=$(CC)
+      endif
+    else
+      ARGS += HOSTCC=$(HOSTCC)
+    endif
+    ifneq ($(LD),)
+      ARGS += LD=$(LD) HOSTLD=$(LD)
+      ifneq ($(suffix $(LD)),)
+        ARGS += HOSTLDFLAGS=-fuse-ld=$(subst .,,$(suffix $(LD)))
+      endif
+    endif
+    ifneq ($(LD_LIBRARY_PATH),)
+      ARGS += LD_LIBRARY_PATH=$(KERNEL_ROOT_DIR)/$(LD_LIBRARY_PATH)
     endif
   endif
 
@@ -98,13 +102,18 @@ ifneq ($(strip $(TARGET_NO_KERNEL)),true)
     BUILT_KERNEL_TARGET := $(TARGET_PREBUILT_KERNEL)
   endif #TARGET_PREBUILT_KERNEL is empty
     KERNEL_MAKE_OPTION += PROJECT_DTB_NAMES='$(PROJECT_DTB_NAMES)'
-    ifeq ($(strip $(HQ_FACTORY_BUILD)), true)
-      KERNEL_MAKE_OPTION += HQ_FACTORY_BUILD=$(HQ_FACTORY_BUILD)
-    endif
     ifeq ($(strip $(HQ_D85_BUILD)), true)
       KERNEL_MAKE_OPTION += HQ_D85_BUILD=$(HQ_D85_BUILD)
     endif
     ifeq ($(strip $(FTY_TP_GESTURE)), true)
       KERNEL_MAKE_OPTION += FTY_TP_GESTURE=$(FTY_TP_GESTURE)
     endif
+    ifeq ($(strip $(HQ_FACTORY_BUILD)), true)
+      KERNEL_MAKE_OPTION += HQ_FACTORY_BUILD=$(HQ_FACTORY_BUILD)
+    endif
+#hs14 code for SR-AL6528A-01-111 by  TangYuhang at 20221110 start
+    ifeq ($(strip $(HUAQIN_BUILD)), true)
+      KERNEL_MAKE_OPTION += HUAQIN_BUILD=$(HUAQIN_BUILD)
+    endif
+#hs14 code for SR-AL6528A-01-111 by  TangYuhang at 20221110 end
 endif #TARGET_NO_KERNEL

@@ -1,7 +1,7 @@
 #
-# ILI9881 touchscreen driver configuration
+# ILI7806S touchscreen driver configuration
 #
-config TOUCHSCREEN_ILI9881_TOUCH
+config TOUCHSCREEN_ILI7806S_TOUCH
 	bool "ILI9881 for Mediatek package"
 	default n
 	help

@@ -2868,7 +2868,7 @@ static int
 	 * we don't (yet!) support high bandwidth interrupt transfers.
 	 */
 	if (qh->type == USB_ENDPOINT_XFER_ISOC) {
-		qh->hb_mult = 1 + ((qh->maxpacket >> 11) & 0x03);
+		qh->hb_mult = usb_endpoint_maxp_mult(epd);
 		if (qh->hb_mult > 1) {
 			int ok = (qh->type == USB_ENDPOINT_XFER_ISOC);
 
@@ -3026,8 +3026,8 @@ static int musb_cleanup_urb(struct urb *urb, struct musb_qh *qh)
 	else
 		DBG(4, "111111aaaaaaaaa\n");
 
-
-	musb_ep_select(regs, hw_end);
+	if (regs)
+		musb_ep_select(regs, hw_end);
 	DBG(2, "is_in is %d,ep num is %d\n", is_in, ep->epnum);
 
 	if (is_dma_capable()) {
@@ -3106,16 +3106,15 @@ static int musb_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 				qh);
 
 	if (pos < 256) {
-		snprintf(info + pos, 256 - pos, ",rdy<%d>,prev<%d>,cur<%d>",
+		ret = snprintf(info + pos, 256 - pos, ",rdy<%d>,prev<%d>,cur<%d>",
 				qh->is_ready,
 				urb->urb_list.prev != &qh->hep->urb_list,
 				musb_ep_get_qh(qh->hw_ep, is_in) == qh);
+		if (ret < 0)
+			DBG(0, "ret<%d>\n", ret);
 	}
 
-	if (strstr(current->comm, "usb_call"))
-		DBG_LIMIT(5, "%s", info);
-	else
-		DBG(0, "%s\n", info);
+	DBG_LIMIT(5, "%s", info);
 
 #ifdef CONFIG_MTK_MUSB_QMU_SUPPORT
 	/* abort HW transaction on this ep */
@@ -3170,7 +3169,7 @@ static int musb_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 #endif
 			if (qh->type != USB_ENDPOINT_XFER_CONTROL) {
 				DBG(0, "why here, this is ring case?\n");
-				musb_bug();
+				dump_stack();
 			}
 
 			qh->hep->hcpriv = NULL;
@@ -3308,15 +3307,55 @@ exit:
 	spin_unlock_irqrestore(&musb->lock, flags);
 }
 
+/*HS03s for SR-AL5625-01-373 by wenyaqi at 20210429 start*/
+void unset_qh_ready(struct usb_hcd *hcd, struct usb_host_endpoint *hep)
+{
+	u8 is_in = hep->desc.bEndpointAddress & USB_DIR_IN;
+	struct musb *musb = hcd_to_musb(hcd);
+	struct musb_qh *qh;
+
+	if (hep == &pre_hep) {
+		struct musb_hw_ep *hw_ep;
+		int epnum = usb_endpoint_num(&hep->desc);
+
+		hw_ep = musb->endpoints + epnum;
+
+		if (is_in)
+			qh = hw_ep->in_qh;
+		else
+			qh = hw_ep->out_qh;
+
+		DBG(2, "qh:%p, ep%d%s hep<%p>\n",
+			qh, epnum, is_in ? "in" : "out", hep);
+
+		if (qh == NULL)
+			return;
+
+		qh->is_ready = 0;
+	}
+}
+
 void musb_h_pre_disable(struct musb *musb)
 {
 	int i = 0;
+	unsigned long flags;
 	struct usb_hcd *hcd = musb_to_hcd(musb);
 
-	DBG(0, "disable all endpoints\n");
+	DBG(0, "1st, unset qh ready first\n");
 	if (hcd == NULL)
 		return;
 
+	spin_lock_irqsave(& musb->lock, flags);
+	for (i = 0; i < musb->nr_endpoints; i++) {
+		pre_hep.desc.bEndpointAddress = (i | USB_DIR_IN);
+		unset_qh_ready(hcd, &pre_hep);
+		pre_hep.desc.bEndpointAddress = (i | USB_DIR_OUT);
+		unset_qh_ready(hcd, &pre_hep);
+	}
+	spin_unlock_irqrestore(&musb->lock, flags);
+
+	DBG(0, "2nd, disable all endpoints\n");
+/*HS03s for SR-AL5625-01-373 by wenyaqi at 20210429 end*/
 	for (i = 0; i < musb->nr_endpoints; i++) {
 		pre_hep.desc.bEndpointAddress = (i | USB_DIR_IN);
 		musb_h_disable(hcd, &pre_hep);
@@ -3356,6 +3395,11 @@ static int musb_bus_suspend(struct usb_hcd *hcd)
 {
 	struct musb *musb = hcd_to_musb(hcd);
 	u8 devctl;
+	int ret;
+
+	ret = musb_port_suspend(musb, true);
+	if (ret)
+		return ret;
 
 	if (!is_host_active(musb))
 		return 0;
@@ -3394,8 +3438,10 @@ static int musb_bus_resume(struct usb_hcd *hcd)
 {
 	struct musb *musb = hcd_to_musb(hcd);
 
-	if (is_host_active(musb))
-		usb_hal_dpidle_request(USB_DPIDLE_FORBIDDEN);
+	if (!is_host_active(musb))
+		return 0;
+
+	usb_hal_dpidle_request(USB_DPIDLE_FORBIDDEN);
 
 	/* resuming child port does the work */
 	return 0;

@@ -27,6 +27,9 @@ struct disp_lcm_handle {
 
 /* these 2 variables are defined in mt65xx_lcm_list.c */
 extern struct LCM_DRIVER *lcm_driver_list[];
+/*hs04 code for DEAL6398A-1875 by zhawei at 20221017 start*/
+extern struct LCM_DRIVER *hs04_lcm_driver_list[];
+/*hs04 code for DEAL6398A-1875 by zhawei at 20221017 end*/
 extern unsigned int lcm_count;
 
 
@@ -63,7 +66,6 @@ int disp_lcm_validate_roi(struct disp_lcm_handle *plcm,
 	int *x, int *y, int *w, int *h);
 int disp_lcm_aod(struct disp_lcm_handle *plcm, int enter);
 int disp_lcm_is_arr_support(struct disp_lcm_handle *plcm);
-int disp_lcm_disable(struct disp_lcm_handle *plcm);
 
 /*-----------------------DynFPS start-----------------------------------*/
 int disp_lcm_is_dynfps_support(struct disp_lcm_handle *plcm);

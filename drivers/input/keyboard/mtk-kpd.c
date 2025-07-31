@@ -26,9 +26,10 @@
 #include <linux/regmap.h>
 #include <linux/timer.h>
 #include <linux/workqueue.h>
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 start*/
+/*hs03s  code for SR-AL5625-01-266 by wangdeyan at 20210408 start*/
 #include <linux/input.h>
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 end*/
+/*hs03s  code for SR-AL5625-01-266 by wangdeyan at 20210408 end*/
+
 #define KPD_NAME	"mtk-kpd"
 
 #define KP_STA			(0x0000)
@@ -70,7 +71,8 @@ static void kpd_keymap_handler(unsigned long data);
 
 static int kpd_pdrv_probe(struct platform_device *pdev);
 
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 start*/
+
+/*hs03s  code for SR-AL5625-01-266 by wangdeyan at 20210408 start*/
 struct device *sec_key;
 
 #include <linux/sec_class.h>
@@ -120,7 +122,7 @@ static struct attribute *sec_key_attrs[] = {
 static struct attribute_group sec_key_attr_group = {
         .attrs = sec_key_attrs,
 };
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 end*/
+/*hs03s  code for SR-AL5625-01-266 by wangdeyan at 20210408 end*/
 
 static void kpd_get_keymap_state(void __iomem *kp_base, u16 state[])
 {
@@ -172,11 +174,9 @@ static void kpd_keymap_handler(unsigned long data)
 				continue;
 			input_report_key(keypad->input_dev, keycode, pressed);
 			input_sync(keypad->input_dev);
-
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 start*/
+/*hs03s  code for SR-AL5625-01-266 by wangdeyan at 20210408 start*/
 			get_key_code_state(keycode,pressed);
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 end*/
-
+/*hs03s  code for SR-AL5625-01-266 by wangdeyan at 20210408 end*/
 			pr_debug("report Linux keycode = %d\n", keycode);
 		}
 	}
@@ -363,20 +363,17 @@ static int kpd_pdrv_probe(struct platform_device *pdev)
 		goto err_irq;
 	}
 
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 start*/
+/*hs03s  code for SR-AL5625-01-266 by wangdeyan at 20210408 start*/
 	sec_key = sec_device_create(NULL, "sec_key");
-        if (IS_ERR(sec_key))
-                pr_err("Failed to create device(sec_key)!\n");
-
-        err = sysfs_create_group(&sec_key->kobj, &sec_key_attr_group);
-        if (err) {
-                pr_notice("Unable to create sysfs_group, error: %d\n",
-                        err);
-        }
-        dev_set_drvdata(sec_key, keypad);
-/*TabA7 Lite code for SR-AX3565-01-185 by zhaoxiangxiang at 20201125 end*/
-
-
+	if (IS_ERR(sec_key))
+			pr_err("Failed to create device(sec_key)!\n");
+	err = sysfs_create_group(&sec_key->kobj, &sec_key_attr_group);
+	if (err) {
+			pr_notice("Unable to create sysfs_group, error: %d\n",
+					err);
+	}
+	dev_set_drvdata(sec_key, keypad);
+/*hs03s  code for SR-AL5625-01-266 by wangdeyan at 20210408 end*/
 	pr_info("kpd_probe OK.\n");
 
 	return 0;

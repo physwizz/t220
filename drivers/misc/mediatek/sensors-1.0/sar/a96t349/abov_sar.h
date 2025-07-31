@@ -102,6 +102,10 @@ static struct _buttonInfo psmtcButtons[] = {
 struct abov_platform_data {
     int i2c_reg_num;
     struct smtc_reg_data *pi2c_reg;
+    struct regulator *vdd;
+    /*TabA7 Lite code for OT8-221 by Hujincan at 20201218 start*/
+    //struct regulator *vddio;
+    /*TabA7 Lite code for OT8-221 by Hujincan at 20201218 start*/
     unsigned irq_gpio;
     /* used for custom setting for channel and scan period */
     int cap_channel_bottom;
@@ -114,7 +118,11 @@ struct abov_platform_data {
     void (*exit_platform_hw)(void);
 #if defined(CONFIG_SENSORS)
     struct device *factory_device;
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    struct device *factory_device_sub;
+#else
     struct device *factory_device_wifi;
+#endif  //hs03s
 #endif
 };
 typedef struct abov_platform_data abov_platform_data_t;
@@ -147,7 +155,9 @@ typedef struct abov_platform_data *pabov_platform_data_t;
 #define MAX_NUM_STATUS_BITS (2)
 
 /*TabA7 Lite code for OT8-467 by Hujincan at 20210105 start*/
-#define SAR_USB_CALIBRATION
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 start*/
+//#define SAR_USB_CALIBRATION
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 end*/
 /*TabA7 Lite code for OT8-467 by Hujincan at 20210105 end*/
 
 typedef struct abovXX abovXX_t, *pabovXX_t;

@@ -178,7 +178,13 @@ void himax_get_arraydata_edge(int *RAW)
 {
 	int temp, i, j;
 	int len = ic_data->HX_RX_NUM * ic_data->HX_TX_NUM;
-	int ArrayData[len];
+	int *ArrayData;
+
+	ArrayData = kcalloc(len, sizeof(int), GFP_KERNEL);
+	if (ArrayData == NULL) {
+		E("%s: allocate ArrayData failed\n", __func__);
+		return;
+	}
 
 	for (i = 0; i < len; i++)
 		ArrayData[i] = RAW[i];
@@ -382,7 +388,6 @@ static uint32_t himax_get_rawdata(int RAW[], uint32_t len, uint8_t checktype)
 {
 	uint8_t *tmp_rawdata;
 	bool get_raw_rlst;
-	uint8_t retry = 0;
 	uint32_t i = 0;
 	int Min_DATA = 99999;
 	int Max_DATA = -99999;
@@ -394,20 +399,12 @@ static uint32_t himax_get_rawdata(int RAW[], uint32_t len, uint8_t checktype)
 		return HX_INSP_MEMALLCTFAIL;
 	}
 
-	while (retry < 10) {
-		get_raw_rlst = g_core_fp.fp_get_DSRAM_data(tmp_rawdata, false);
-		if (get_raw_rlst)
-			break;
-		retry++;
-	}
-
-	if (retry >= 10)
+	get_raw_rlst = g_core_fp.fp_get_DSRAM_data(tmp_rawdata, false);
+	if (!get_raw_rlst)
 		goto DIRECT_END;
 
 	/* Copy Data*/
-/*TabA7 Lite code for OT8-1408 by liupengtao at 20210125 start*/
-	for (i = 0; i < (len - ic_data->HX_TX_NUM - ic_data->HX_RX_NUM); i++) {
-/*TabA7 Lite code for OT8-1408 by liupengtao at 20210125 end*/
+	for (i = 0; i < len; i++) {
 		if (checktype == HX_WT_NOISE ||
 			checktype == HX_ABS_NOISE ||
 			checktype == HX_ACT_IDLE_NOISE ||
@@ -420,12 +417,14 @@ static uint32_t himax_get_rawdata(int RAW[], uint32_t len, uint8_t checktype)
 			RAW[i] = tmp_rawdata[(i * 2) + 1]<<8 |
 				tmp_rawdata[(i * 2)];
 
-		if (i == 0)
-			Min_DATA = Max_DATA = RAW[0];
-		else if (RAW[i] > Max_DATA)
-			Max_DATA = RAW[i];
-		else if (RAW[i] < Min_DATA)
-			Min_DATA = RAW[i];
+		if (i < (len - ic_data->HX_RX_NUM - ic_data->HX_TX_NUM)) {
+			if (i == 0)
+				Min_DATA = Max_DATA = RAW[0];
+			else if (RAW[i] > Max_DATA)
+				Max_DATA = RAW[i];
+			else if (RAW[i] < Min_DATA)
+				Min_DATA = RAW[i];
+		}
 	}
 	I("Max = %5d, Min = %5d\n", Max_DATA, Min_DATA);
 
@@ -680,7 +679,7 @@ static int himax_get_noise_weight_test(uint8_t checktype)
 
 	/*0x100072C8 weighting value*/
 	g_core_fp.fp_register_read(tmp_addr, 4, tmp_data, false);
-	if (tmp_data[3] != tmp_addr[1] || tmp_data[2] != tmp_addr[0])
+	if (tmp_data[3] != 0x72 || tmp_data[2] != 0xC8)
 		return FW_NOT_READY;
 
 	value = (tmp_data[1] << 8) | tmp_data[0];
@@ -925,7 +924,7 @@ static int hx_turn_on_mp_func(int on)
 		sizeof(tmp_addr));
 	if (on) {
 		I("%s : Turn on!\n", __func__);
-		if (strcmp(HX_83102D_SERIES_PWON, private_ts->chip_name) == 0) {
+		if (strcmp(HX_83102D_JZ_INX, private_ts->chip_name) == 0) {
 			I("%s: need to enter Mp mode!\n", __func__);
 			himax_parse_assign_cmd(PWD_TURN_ON_MPAP_OVL,
 					tmp_data, sizeof(tmp_data));
@@ -952,7 +951,7 @@ static int hx_turn_on_mp_func(int on)
 		}
 	} else {
 		I("%s : Turn off!\n", __func__);
-		if (strcmp(HX_83102D_SERIES_PWON, private_ts->chip_name) == 0) {
+		if (strcmp(HX_83102D_JZ_INX, private_ts->chip_name) == 0) {
 			I("%s: need to enter Mp mode!\n", __func__);
 
 			himax_parse_assign_cmd(ic_cmd_rst, tmp_data,
@@ -1617,6 +1616,10 @@ static uint32_t mpTestFunc(uint8_t checktype, uint32_t datalen)
 	himax_switch_data_type(checktype);
 
 	ret_val |= himax_get_rawdata(RAW, datalen, checktype);
+
+	/* back to normal */
+	himax_switch_data_type(HX_BACK_NORMAL);
+
 	if (ret_val) {
 		E("%s: himax_get_rawdata FAIL\n", __func__);
 		ret_val |= (1 << (checktype + ERR_SFT));
@@ -1625,9 +1628,6 @@ static uint32_t mpTestFunc(uint8_t checktype, uint32_t datalen)
 
 	/*get Max DC from FW*/
 	g_dc_max = himax_get_max_dc();
-
-	/* back to normal */
-	himax_switch_data_type(HX_BACK_NORMAL);
 
 	I("%s: Init OK, start to test!\n", __func__);
 
@@ -2207,7 +2207,7 @@ END:
 }
 
 
-int himax_parse_test_dri_file(const struct firmware *file_entry)
+static int himax_parse_test_dri_file(const struct firmware *file_entry)
 {
 	int start_str_len = 0;
 	int str_size = 0;
@@ -2420,7 +2420,7 @@ static void hx_print_ic_id(void)
 
 	kfree(prt_data);
 }
-/*TabA7 Lite code for OT8-2503 by liufurong at 20210210 start*/
+
 static char *get_date_time_str(void)
 {
 	struct timespec now_time;
@@ -2436,17 +2436,24 @@ static char *get_date_time_str(void)
 
 	return time_data_buf;
 }
-/*TabA7 Lite code for OT8-2503 by liufurong at 20210210 end*/
+
 static int himax_self_test_data_init(void)
 {
 	const struct firmware *file_entry = NULL;
 	struct himax_ts_data *ts = private_ts;
+	char *file_name_1 = "hx_criteria.dri";
 	char *file_name_2 = "hx_criteria.csv";
 	int setting_sz = -1;
 	int ret = HX_INSP_OK;
 	int err = 0;
 	int i = 0;
 
+	if(strcmp(HX_83112A_LS_BOE, private_ts->chip_name) == 0 ){
+		file_name_2 = "hx_83112a_criteria.csv";
+	}else {
+		file_name_2 = "hx_83102d_criteria.csv";
+	}
+	
 	/*
 	 * 5: one value will not over than 99999, so get this size of string
 	 * 2: get twice size
@@ -2505,6 +2512,7 @@ static int himax_self_test_data_init(void)
 			goto err_malloc_rslt_data;
 		}
 	}
+
 	g_rslt_data_test_len = 0;
 	if (g_rslt_data_test == NULL) {
 		g_rslt_data_test = kcalloc(5*5000, sizeof(char),GFP_KERNEL);
@@ -2535,23 +2543,33 @@ static int himax_self_test_data_init(void)
 
 	/* default path is /system/etc/firmware */
 	/* request criteria file*/
-
-	err = request_firmware(&file_entry, file_name_2, ts->dev);
+	err = request_firmware(&file_entry, file_name_1, ts->dev);
 	if (err < 0) {
-		E("%s,Fail to get %s\n", __func__, file_name_2);
-		I("No criteria file file");
-		ret = HX_INSP_EFILE;
-		goto err_open_criteria_file;
+		E("%s,Fail to get %s\n", __func__, file_name_1);
+		err = request_firmware(&file_entry, file_name_2, ts->dev);
+		if (err < 0) {
+			E("%s,Fail to get %s\n", __func__, file_name_2);
+			I("No criteria file file");
+			ret = HX_INSP_EFILE;
+			goto err_open_criteria_file;
+		} else {
+			I("%s,Success to get %s\n", __func__, file_name_2);
+			/* parsing criteria from file .csv*/
+			ret = himax_parse_criteria(file_entry);
+			release_firmware(file_entry);
+			if (ret > 0)
+				goto err_open_criteria_file;
+			himax_test_item_chk(true);
+		}
 	} else {
-		I("%s,Success to get %s\n", __func__, file_name_2);
-		/* parsing criteria from file .csv*/
-		ret = himax_parse_criteria(file_entry);
+		/* parsing test file .dri*/
+		I("%s,Success to get %s\n", __func__, file_name_1);
+		ret = himax_parse_test_dri_file(file_entry);
 		release_firmware(file_entry);
 		if (ret > 0)
 			goto err_open_criteria_file;
-		himax_test_item_chk(true);
+		himax_test_item_chk(false);
 	}
-
 
 	if (private_ts->debug_log_level & BIT(4)) {
 		/* print get criteria string */
@@ -2658,7 +2676,7 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 	}
 
 #if defined(HX_ZERO_FLASH)
-	g_core_fp.fp_0f_op_file_dirly(MPAP_FWNAME);
+	g_core_fp.fp_0f_op_file_dirly(g_fw_mp_upgrade_name);
 	hx_turn_on_mp_func(1);
 	g_core_fp.fp_reload_disable(0);
 	if (private_ts->debug_log_level & BIT(4))
@@ -2666,9 +2684,6 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 	g_core_fp.fp_sense_on(0x00);
 	if (private_ts->debug_log_level & BIT(4))
 		I("%s:end sense on!\n", __func__);
-/*TabA7 Lite code for OT8-1408 by liupengtao at 20210127 start*/
-	g_core_fp.fp_read_FW_ver();
-/*TabA7 Lite code for OT8-1408 by liupengtao at 20210127 end*/
 #endif
 
 	if (!kp_getname_kernel) {
@@ -2689,7 +2704,7 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 	}
 
 	fs = get_fs();
-	set_fs(get_ds());
+	set_fs(KERNEL_DS);
 
 	if (file_w_flag) {
 		vfs_write(raw_file, g_rslt_data, g_rslt_data_len, &pos);
@@ -2765,8 +2780,7 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 
 #if defined(HX_ZERO_FLASH)
 	private_ts->in_self_test = 0;
-	g_core_fp.fp_0f_op_file_dirly(BOOT_UPGRADE_FWNAME);
-	g_core_fp.fp_sense_off(true);
+	g_core_fp.fp_0f_op_file_dirly(g_fw_boot_upgrade_name);
 	hx_turn_on_mp_func(0);
 	/* set N frame back to default value 1*/
 	g_core_fp.fp_register_write(tmp_addr, 4, tmp_data, 0);
@@ -2791,12 +2805,17 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 		hx_print_ic_id();
 	}
 
+/*hs03s  code for DEVAL5625-500 by wangdeyan at 20210525 start*/
 	if (himax_check_mode(HX_RAWDATA)) {
 		I("%s:try to  Need to back to Normal!\n", __func__);
 		himax_switch_mode_inspection(HX_RAWDATA);
 		if (private_ts->debug_log_level & BIT(4))
 			I("%s:start sense on!\n", __func__);
-		g_core_fp.fp_sense_on(0);
+			#if defined(HX_ZERO_FLASH)
+				g_core_fp.fp_power_on_init();
+			#else		
+				g_core_fp.fp_sense_on(0);
+			#endif
 		if (private_ts->debug_log_level & BIT(4))
 			I("%s:end sense on!\n", __func__);
 		himax_wait_sorting_mode(HX_RAWDATA);
@@ -2804,10 +2823,16 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 		I("%s: It has been in Normal!\n", __func__);
 		if (private_ts->debug_log_level & BIT(4))
 			I("%s:start sense on!\n", __func__);
-		g_core_fp.fp_sense_on(0);
+			#if defined(HX_ZERO_FLASH)
+				g_core_fp.fp_power_on_init();
+			#else
+				g_core_fp.fp_sense_on(0);
+			#endif
 		if (private_ts->debug_log_level & BIT(4))
 			I("%s:end sense on!\n", __func__);
 	}
+
+/*hs03s  code for DEVAL5625-500 by wangdeyan at 20210525 end*/
 
 	if (ret == HX_INSP_OK)
 		seq_puts(s, "Self_Test Pass:\n");
@@ -2842,7 +2867,7 @@ void himax_inspect_data_clear(void)
 		g_rslt_data = NULL;
 	}
 }
-/*TabA7 Lite code for OT8-2503 by liufurong at 20210210 start*/
+
 void himax_ito_test_work(struct work_struct *work)
 {
 	loff_t write_count = 0;
@@ -2856,6 +2881,8 @@ void himax_ito_test_work(struct work_struct *work)
 			file_w_flag = false;
 	} else
 			vts_name = kp_getname_kernel(g_file_path);
+
+	I("ito result file is %s",vts_name->name);
 
 	if (file_p == NULL && file_w_flag) {
 			file_p = kp_file_open_name(vts_name,
@@ -2871,10 +2898,16 @@ void himax_ito_test_work(struct work_struct *work)
 	fs = get_fs();
 	set_fs(get_ds());
 
-	if (file_w_flag){
+	/* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 start */
+	if (file_w_flag) {
+		if (g_rslt_data_test == NULL) {
+			E("%s: g_rslt_data_test is NULL!\n", __func__);
+			return;
+		}
 		vfs_write(file_p, g_rslt_data_test, g_rslt_data_test_len, &write_count);
 		filp_close(file_p, NULL);
 	}
+	/* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 end */
 	if (!kp_putname_kernel) {
 			E("kp_putname_kernel is NULL, not open file!\n");
 			file_w_flag = false;
@@ -2890,7 +2923,24 @@ void himax_ito_test_work(struct work_struct *work)
 	I("write ito data end\n");
 	return;
 }
-/*TabA7 Lite code for OT8-2503 by liufurong at 20210210 end*/
+
+/* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 start */
+static int dev_mkdir(char *name, umode_t mode)
+{
+	int err;
+	mm_segment_t fs;
+
+	I("mkdir: %s\n", name);
+	fs = get_fs();
+	set_fs(KERNEL_DS);
+	err = ksys_mkdir(name, mode);
+	set_fs(fs);
+
+	return err;
+}
+/* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 end */
+
+
 static int himax_chip_self_test_for_hq(void)
 {
         uint32_t ret = HX_INSP_OK;
@@ -2908,6 +2958,11 @@ static int himax_chip_self_test_for_hq(void)
         I("%s:IN\n", __func__);
         mutex_lock(&private_ts->ito_lock);
         private_ts->suspend_resume_done = 0;
+	
+	/* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 start */
+        if ((dev_mkdir(HX_RSLT_OUT_PATH, 0777)) != 0)
+            E("%s: Failed to create directory for mp_test\n", __func__);
+        /* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 end */
 
         ret = himax_self_test_data_init();
         if (ret > 0) {
@@ -2916,7 +2971,7 @@ static int himax_chip_self_test_for_hq(void)
         }
 
 #if defined(HX_ZERO_FLASH)
-        g_core_fp.fp_0f_op_file_dirly(MPAP_FWNAME);
+        g_core_fp.fp_0f_op_file_dirly(g_fw_mp_upgrade_name);
         hx_turn_on_mp_func(1);
         g_core_fp.fp_reload_disable(0);
         if (private_ts->debug_log_level & BIT(4))
@@ -3029,7 +3084,7 @@ static int himax_chip_self_test_for_hq(void)
 
 #if defined(HX_ZERO_FLASH)
         private_ts->in_self_test = 0;
-        g_core_fp.fp_0f_op_file_dirly(BOOT_UPGRADE_FWNAME);
+        g_core_fp.fp_0f_op_file_dirly(g_fw_boot_upgrade_name);
 	g_core_fp.fp_sense_off(true);
         hx_turn_on_mp_func(0);
         /* set N frame back to default value 1*/
@@ -3101,8 +3156,8 @@ END:
 
 void himax_inspection_init(void)
 {
-    I("%s: enter, %d\n", __func__, __LINE__);
-    g_core_fp.fp_chip_self_test = himax_chip_self_test;
+	I("%s: enter, %d\n", __func__, __LINE__);
+	g_core_fp.fp_chip_self_test = himax_chip_self_test;
     g_core_fp.fp_chip_self_test_for_hq = himax_chip_self_test_for_hq;
     private_ts->hx_ito_wq = alloc_workqueue("hx_ito_wq", WQ_UNBOUND | WQ_MEM_RECLAIM, 1);
     INIT_DELAYED_WORK(&private_ts->hx_ito_test_wq, himax_ito_test_work);

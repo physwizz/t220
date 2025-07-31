@@ -1,8 +1,3 @@
-/*
- * 2020.11.20
- * TabA7 Lite code added by SunXunou at 20201120
- */
-
 #include <linux/proc_fs.h>
 #include <linux/sched.h>
 #include <linux/kallsyms.h>
@@ -48,7 +43,7 @@ static int sim_tray_det_pin(struct device *dev)
 		return -ENODEV;
 
 	np = dev->of_node;
-	det_pin_no = of_get_named_gpio(np, "qcom,sdcard-detect-pin-no", 0);
+	det_pin_no = of_get_named_gpio(np, "mediatek,sdcard-detect-pin-no", 0);
 
 	if (!gpio_is_valid(det_pin_no)) {
 		printk("Invalid GPIO, det_pin_no:%d",
@@ -109,7 +104,7 @@ static int det_pin_remove(struct platform_device *pdev)
 
 
 static const struct of_device_id msm_detpin_dt_match[] = {
-	{.compatible = "qcom,sdcard-detect-pin"},
+	{.compatible = "mediatek,sdcard-detect-pin"},
 	{},
 };
 MODULE_DEVICE_TABLE(of, msm_detpin_dt_match);

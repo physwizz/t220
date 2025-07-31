@@ -600,7 +600,6 @@ config DM_ZONED
 
 	  If unsure, say N.
 
-#TabA7 Lite  code for SR-AX3565-01-282 by yanghui at 2020/11/25 start
 config DM_ANDROID_VERITY_AT_MOST_ONCE_DEFAULT_ENABLED
 	bool "Verity will validate blocks at most once"
 	depends on DM_VERITY
@@ -620,7 +619,6 @@ config DM_ANDROID_VERITY_AT_MOST_ONCE_DEFAULT_ENABLED
 	  any more after all the data blocks it covers have been verified anyway.
 
 	  If unsure, say N.
-#TabA7 Lite  code for SR-AX3565-01-282 by yanghui at 2020/11/25 end
 
 config DM_BOW
 	tristate "Backup block device"
@@ -631,6 +629,20 @@ config DM_BOW
 	  changes using free blocks identified by issuing a trim command.
 	  This can then be restored by running a command line utility,
 	  or committed by simply replacing the target.
+
+	  If unsure, say N.
+
+config DM_USER
+	tristate "Block device in userspace"
+	depends on BLK_DEV_DM
+	default y
+	help
+	  This device-mapper target allows a userspace daemon to provide the
+	  contents of a block device.  See
+	  <file:Documentation/block/dm-user.rst> for more information.
+
+	  To compile this code as a module, choose M here: the module will be
+	  called dm-user.
 
 	  If unsure, say N.
 

@@ -2,7 +2,7 @@
 /*
  * Copyright (C) 2019 MediaTek Inc.
  */
-/*TabA7 Lite code for  SR-AX3565-01-55 add usb thermal node by wenyaqi at 20201130 start*/
+/*HS03s code for SR-AL5625-01-259 by wenyaqi at 20210422 start*/
 #include <linux/version.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -534,9 +534,7 @@ static __s16 mtk_ts_usb_volt_to_temp(__u32 dwVolt)
 	return USB_TMP;
 }
 
-/*TabA7 Lite code for OT8-89 add USB temp protection by wenyaqi at 20201213 start*/
 int mtktsusb_get_hw_temp(void)
-/*TabA7 Lite code for OT8-89 add USB temp protection by wenyaqi at 20201213 end*/
 {
 #if defined(CONFIG_MEDIATEK_MT6577_AUXADC)
 	int val = 0;
@@ -551,9 +549,7 @@ int mtktsusb_get_hw_temp(void)
 #endif
 
 #if defined(CONFIG_MEDIATEK_MT6577_AUXADC)
-	/*TabA7 Lite code for SR-AX3565-01-55 modify charger temp ntc by wenyaqi at 20201123 start*/
 	ret = iio_read_channel_processed(thermistor_ch3, &val);
-	/*TabA7 Lite code for SR-AX3565-01-55 modify charger temp ntc by wenyaqi at 20201123 end*/
 	if (ret < 0) {
 		mtktsusb_dprintk_always(
 			"Busy/Timeout, IIO ch read failed %d\n", ret);
@@ -630,6 +626,11 @@ int mtktsusb_get_hw_temp(void)
 	output = mtk_ts_usb_volt_to_temp(ret);
 	mtktsusb_dprintk_always("USB ret = %d, temperature = %d\n",
 								ret, output);
+	/*HS03s for SR-AL5625-01-248 by wenyaqi at 20210429 start*/
+	#ifdef HQ_D85_BUILD
+	output = 25;
+	#endif
+	/*HS03s for SR-AL5625-01-248 by wenyaqi at 20210429 end*/
 	return output;
 }
 
@@ -825,11 +826,11 @@ struct thermal_cooling_device *cdev, unsigned long state)
 		/* To trigger data abort to reset the system
 		 * for thermal protection.
 		 */
-		/*TabA7 Lite code for OT8-3638 import D85 policy by wenyaqi at 20210301 start*/
-		#ifndef HQ_D85_BUILD
+		/* hs14 code for SR-AL6528A-01-336 by shanxinkai at 2022/09/15 start */
+		#if 0
 		BUG();
 		#endif
-		/*TabA7 Lite code for OT8-3638 import D85 policy by wenyaqi at 20210301 end*/
+		/* hs14 code for SR-AL6528A-01-336 by shanxinkai at 2022/09/15 end */
 	}
 
 	return 0;
@@ -1261,7 +1262,6 @@ static int mtktsusb_pdrv_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	/*TabA7 Lite code for SR-AX3565-01-55 modify charger temp ntc by wenyaqi at 20201123 start*/
 	thermistor_ch3 = devm_kzalloc(&pdev->dev, sizeof(*thermistor_ch3),
 		GFP_KERNEL);
 	if (!thermistor_ch3)
@@ -1276,7 +1276,6 @@ static int mtktsusb_pdrv_probe(struct platform_device *pdev)
 			__func__, ret);
 		return ret;
 	}
-	/*TabA7 Lite code for SR-AX3565-01-55 modify charger temp ntc by wenyaqi at 20201123 end*/
 
 	err = mtktsusb_register_thermal();
 	if (err)
@@ -1313,7 +1312,13 @@ static int mtktsusb_pdrv_remove(struct platform_device *pdev)
 
 
 #ifdef CONFIG_OF
+#if defined(CONFIG_HQ_PROJECT_O22)
+const struct of_device_id mt_thermistor_of_match4[2] = {
+#elif defined(CONFIG_HQ_PROJECT_O8)
+const struct of_device_id mt_thermistor_of_match4[2] = {
+#else
 const struct of_device_id mt_thermistor_of_match3[2] = {
+#endif
 	{.compatible = "mediatek,mtboard-thermistor4",},
 	{},
 };
@@ -1326,7 +1331,13 @@ static struct platform_driver mtktsusb_driver = {
 	.driver = {
 		.name = THERMAL_THERMISTOR_NAME,
 #ifdef CONFIG_OF
+#if defined(CONFIG_HQ_PROJECT_O22)
+		.of_match_table = mt_thermistor_of_match4,
+#elif defined(CONFIG_HQ_PROJECT_O8)
+		.of_match_table = mt_thermistor_of_match4,
+#else
 		.of_match_table = mt_thermistor_of_match3,
+#endif
 #endif
 	},
 };
@@ -1398,4 +1409,4 @@ static void __exit mtktsusb_exit(void)
 
 late_initcall(mtktsusb_init);
 module_exit(mtktsusb_exit);
-/*TabA7 Lite code for  SR-AX3565-01-55 add usb thermal node by wenyaqi at 20201130 end*/
+/*HS03s code for SR-AL5625-01-259 by wenyaqi at 20210422 end*/

@@ -458,4 +458,3 @@ MODULE_DESCRIPTION("Samsung Modem Interface Driver");
 
 
 
-

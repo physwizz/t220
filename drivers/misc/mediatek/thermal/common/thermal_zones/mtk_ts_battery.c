@@ -197,11 +197,12 @@ static int mtktsbattery_get_hw_temp(void)
 	/* cat /sys/class/power_supply/battery/batt_temp */
 	t_ret = get_hw_battery_temp();
 	t_ret = t_ret * 100;
-	/*TabA7 Lite code for OT8-3638 import D85 policy by wenyaqi at 20210301 start*/
+
+	/* hs14 code for SR-AL6528A-01-336 by shanxinkai at 2022/09/15 start */
 	#ifdef HQ_D85_BUILD
 	t_ret = 25000;
 	#endif
-	/*TabA7 Lite code for OT8-3638 import D85 policy by wenyaqi at 20210301 end*/
+	/* hs14 code for SR-AL6528A-01-336 by shanxinkai at 2022/09/15 end */
 
 	mutex_unlock(&Battery_lock);
 
@@ -428,11 +429,11 @@ struct thermal_cooling_device *cdev, unsigned long state)
 		/* To trigger data abort to reset the system
 		 * for thermal protection.
 		 */
-		/*TabA7 Lite code for OT8-3638 import D85 policy by wenyaqi at 20210301 start*/
-		#ifndef HQ_D85_BUILD
+		/* hs14 code for SR-AL6528A-01-336 by shanxinkai at 2022/09/15 start */
+		#if defined(HQ_FACTORY_BUILD) && (!defined(HQ_D85_BUILD))
 		BUG();
 		#endif
-		/*TabA7 Lite code for OT8-3638 import D85 policy by wenyaqi at 20210301 end*/
+		/* hs14 code for SR-AL6528A-01-336 by shanxinkai at 2022/09/15 end */
 	}
 	return 0;
 }

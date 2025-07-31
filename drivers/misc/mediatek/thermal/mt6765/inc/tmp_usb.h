@@ -2,7 +2,7 @@
 /*
  * Copyright (C) 2019 MediaTek Inc.
  */
-/*TabA7 Lite code for  SR-AX3565-01-55 add usb thermal node by wenyaqi at 20201130 start*/
+/*HS03s code for SR-AL5625-01-259 by wenyaqi at 20210422 start*/
 #ifndef __TMP_BTS_CHARGER_H__
 #define __TMP_BTS_CHARGER_H__
 
@@ -30,4 +30,4 @@ extern int IMM_GetOneChannelValue(int dwChannel, int data[4], int *rawdata);
 extern int IMM_IsAdcInitReady(void);
 
 #endif	/* __TMP_BTS_CHARGER_H__ */
-/*TabA7 Lite code for  SR-AX3565-01-55 add usb thermal node by wenyaqi at 20201130 end*/
+/*HS03s code for SR-AL5625-01-259 by wenyaqi at 20210422 end*/

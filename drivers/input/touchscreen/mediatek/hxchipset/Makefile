@@ -11,6 +11,11 @@ ifneq ($(filter y, $(CONFIG_KALLSYMS_ALL)),)
 	ccflags-y += -D__KERNEL_KALLSYMS_ALL_ENABLED__
 endif
 
+ifneq ($(filter m, $(CONFIG_TOUCHSCREEN_HIMAX_COMMON)),)
+   ccflags-y += -D__HIMAX_MOD__
+endif
+obj-y += himax_modular_table.o
+
 ifneq ($(filter y m, $(CONFIG_TOUCHSCREEN_HIMAX_DEBUG)),)
 	himax_mmi-objs += himax_debug.o
 endif
@@ -59,11 +64,21 @@ endif
 
 ifneq ($(filter y m, $(CONFIG_TOUCHSCREEN_HIMAX_IC_HX83102)),)
   ccflags-y += -D__HIMAX_HX83102_MOD__
-  ifneq ($(filter m, $(CONFIG_TOUCHSCREEN_HIMAX_COMMON)),)
+ ifneq ($(filter m, $(CONFIG_TOUCHSCREEN_HIMAX_COMMON)),)
 	obj-m += himax_ic_HX83102.o
   endif
   ifneq ($(filter y, $(CONFIG_TOUCHSCREEN_HIMAX_COMMON)),)
 	obj-y += himax_ic_HX83102.o
+  endif
+endif
+
+ifneq ($(filter y m, $(CONFIG_TOUCHSCREEN_HIMAX_IC_HX83121)),)
+  ccflags-y += -D__HIMAX_HX83121_MOD__
+  ifneq ($(filter m, $(CONFIG_TOUCHSCREEN_HIMAX_COMMON)),)
+	obj-m += himax_ic_HX83121.o
+  endif
+  ifneq ($(filter y, $(CONFIG_TOUCHSCREEN_HIMAX_COMMON)),)
+	obj-y += himax_ic_HX83121.o
   endif
 endif
 
@@ -137,24 +152,26 @@ ifneq ($(filter y m, $(CONFIG_TOUCHSCREEN_HIMAX_IC_HX83192)),)
   endif
 endif
 
-ifneq ($(filter m, $(CONFIG_TOUCHSCREEN_HIMAX_COMMON)),)
-  ccflags-y += -D__HIMAX_MOD__
-	himax_mmi-objs += himax_common.o
-	himax_mmi-objs += himax_platform.o
-	himax_mmi-objs += himax_v3_sec.o
-ifneq ($(filter y, $(CONFIG_TOUCHSCREEN_HIMAX_EMBEDDED_FIRMWARE)),)
-	himax_mmi-objs += Himax_firmware.o
-endif
-	obj-m += himax_mmi.o
-endif
-ifneq ($(filter y, $(CONFIG_TOUCHSCREEN_HIMAX_COMMON)),)
-	himax_mmi-objs += himax_common.o
-	himax_mmi-objs += himax_platform.o
-	himax_mmi-objs += himax_v3_sec.o
-ifneq ($(filter y, $(CONFIG_TOUCHSCREEN_HIMAX_EMBEDDED_FIRMWARE)),)
-	himax_mmi-objs += Himax_firmware.o
-endif
-	obj-y += himax_mmi.o
+ifneq ($(filter y m, $(CONFIG_TOUCHSCREEN_HIMAX_COMMON)),)
+  ifneq ($(filter m, $(CONFIG_TOUCHSCREEN_HIMAX_COMMON)),)
+    ccflags-y += -D__HIMAX_MOD__
+    himax_mmi-objs += himax_common.o
+    himax_mmi-objs += himax_platform.o
+    himax_mmi-objs += himax_v3_sec.o
+    ifneq ($(filter y, $(CONFIG_TOUCHSCREEN_HIMAX_EMBEDDED_FIRMWARE)),)
+      himax_mmi-objs += Himax_firmware.o
+    endif
+	  obj-m += himax_mmi.o
+  endif
+  ifneq ($(filter y, $(CONFIG_TOUCHSCREEN_HIMAX_COMMON)),)
+    himax_mmi-objs += himax_common.o
+    himax_mmi-objs += himax_platform.o
+    himax_mmi-objs += himax_v3_sec.o
+    ifneq ($(filter y, $(CONFIG_TOUCHSCREEN_HIMAX_EMBEDDED_FIRMWARE)),)
+    	himax_mmi-objs += Himax_firmware.o
+    endif
+	  obj-y += himax_mmi.o
+  endif
 endif
 
 ifneq ($(filter y, $(CONFIG_TOUCHSCREEN_HIMAX_EMBEDDED_FIRMWARE)),)

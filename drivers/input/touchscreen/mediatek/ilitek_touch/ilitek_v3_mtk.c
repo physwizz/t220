@@ -396,11 +396,16 @@ static int ilitek_plat_probe(void)
 	init_completion(&ilits->pm_completion);
 
 	ILI_INFO("ILITEK Driver loaded successfully!");
-
+#ifdef CONFIG_HQ_PROJECT_OT8
 	/*TabA7 Lite code for SR-AX3565-01-45 by gaozhengwei at 20201229 start*/
 	tp_is_used = Ilitek;
 	/*TabA7 Lite code for SR-AX3565-01-45 by gaozhengwei at 20201229 end*/
-
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS03S
+	/*TabA7 Lite code for SR-AX3565-01-45 by gaozhengwei at 20201229 start*/
+	tp_is_used = ILITEK_ILI7807S;
+	/*TabA7 Lite code for SR-AX3565-01-45 by gaozhengwei at 20201229 end*/
+#endif
 	return 0;
 }
 
@@ -475,6 +480,12 @@ static int __init ilitek_plat_dev_init(void)
     //             ILI_INFO("this is not %s panel\n",lcd_identify_name);
     //             return -ENODEV;
     //     };
+	/*Tab A7 lite_U code for SR-AX3565U-01-4  by zhengkunbang at 20230807 start*/
+	if ((tp_get_boot_mode() != NORMAL_BOOT) && (tp_get_boot_mode() != ALARM_BOOT)) {
+		ILI_ERR("tp init fail because boot_mode = %d\n",tp_get_boot_mode());
+		return -EINVAL;
+	}
+	/*Tab A7 lite_U code for SR-AX3565U-01-4  by zhengkunbang at 20230807 end*/
 
 	tpd_get_dts_info();
 	ret = tpd_driver_add(&tpd_device_driver);

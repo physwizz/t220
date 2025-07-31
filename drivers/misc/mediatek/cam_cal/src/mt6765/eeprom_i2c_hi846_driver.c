@@ -229,7 +229,7 @@ int hi846_iReadData(unsigned int ui4_offset,
 	{
 		pinputdata[i+30] = read_cmos_sensor(0x708);
 		checksum += pinputdata[i+30];
-		printk("HI846[%d] lsc_data[%d] = 0x%x", i+30, i,pinputdata[i+30]);
+		pr_debug("HI846[%d] lsc_data[%d] = 0x%x", i+30, i,pinputdata[i+30]);
 	}
 	lsc_data_checksum = read_cmos_sensor(0x708);
 	checksum = (checksum % 0xFF) + 1;

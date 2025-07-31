@@ -9,6 +9,8 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+
+/*Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/03/02 start*/
 #define DRIVER_NAME "abov_sar"
 
 #include <linux/module.h>
@@ -25,6 +27,7 @@
 #include <linux/notifier.h>
 #include <linux/usb.h>
 #include <linux/power_supply.h>
+#include "../sensor_user_node.h"
 
 #if defined(CONFIG_FB)
 #include <linux/fb.h>
@@ -37,6 +40,7 @@
 #include <asm/atomic.h>
 #include <linux/async.h>
 #include <linux/firmware.h>
+/*Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/03/02 end*/
 #if defined(CONFIG_SENSORS)
 #include <linux/sensor/sensors_core.h>
 #endif
@@ -45,6 +49,7 @@
 #define VENDOR_NAME      "ABOV"
 #define MODEL_NAME       "A96T3X6"
 #define MODULE_NAME      "grip_sensor"
+#define SUB_MODULE_NAME  "grip_sensor_sub"
 #define WIFI_MODULE_NAME "grip_sensor_wifi"
 #endif
 
@@ -76,16 +81,25 @@ static u8 checksum_l_bin;
 #define LOG_DBG(fmt, args...)   pr_info(LOG_TAG fmt, ##args)
 #define LOG_ERR(fmt, args...)   pr_err(LOG_TAG fmt, ##args)
 
-/*TabA7 Lite code for OT8-2395 by Hujincan at 20210129 start*/
+/* hs03s code for DEVAL5625-2136 by xiongxiaoliang at 2021/07/29 start */
+/* Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/04/10 start */
+#ifdef CONFIG_HQ_PROJECT_OT8
+static bool onoff_mEnabled = true;
+#endif
+/* Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/04/10 end */
 static int mEnabled = 0;
-/*TabA7 Lite code for OT8-2395 by Hujincan at 20210129 end*/
+/* hs03s code for DEVAL5625-2136 by xiongxiaoliang at 2021/07/29 end */
 
 pabovXX_t abov_sar_ptr;
 
 /*TabA7 Lite code for SR-AX3565-01-14 by Hujincan at 20210111 start*/
 extern char *sar_name;
 /*TabA7 Lite code for SR-AX3565-01-14 by Hujincan at 20210111 end*/
-
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 start*/
+static int g_anfr_flag = 1, g_irq_count = 1;
+static u16 ch0_diff = 0, ch1_diff = 0;
+u16 ch0_Previous_diff = 0, ch1_Previous_diff = 0;
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 end*/
 /**
  * struct abov
  * Specialized struct containing input event data, platform data, and
@@ -211,9 +225,44 @@ static struct attribute *abov_attributes[] = {
 static struct attribute_group abov_attr_group = {
     .attrs = abov_attributes,
 };
-
-/*TabA7 Lite code for P210226-03264 by Hujincan at 20210309 start*/
+/* TabA7 Lite code for OT8S-2 by chenyuqi at 20220218 start */
+/* hs03s code for SR-AL5625-01-264 by xiongxiaoliang at 2021/06/11 start */
 #ifdef SAR_USB_CALIBRATION
+#ifdef CONFIG_HQ_PROJECT_HS03S
+static int sar_charger_notifier_callback(struct notifier_block *nb,
+                                unsigned long val, void *v) {
+    int ret = 0;
+    struct power_supply *psy = NULL;
+    union power_supply_propval prop;
+
+    LOG_INFO("sar_charger_notifier_callback val = %ld\n", val);
+    psy= power_supply_get_by_name("mtk_charger_type");
+    if (!psy) {
+        LOG_INFO("Couldn't get usbpsy\n");
+        return 0;
+    }
+
+    if (!strcmp(psy->desc->name, "mtk_charger_type")) {
+        if (psy && val == POWER_SUPPLY_PROP_STATUS) {
+            ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_ONLINE, &prop);
+
+            LOG_INFO("power_supply_get_property prop.intval = %d\n", prop.intval);
+
+            if (prop.intval == 0) {
+                LOG_INFO("USB is not inserted\n", ret);
+                return 0;
+            }
+            else {
+                if(abov_sar_ptr->charger_notify_wq != NULL)
+                    queue_work(abov_sar_ptr->charger_notify_wq, &abov_sar_ptr->update_charger);
+            }
+        }
+    }
+    return 0;
+}
+/* hs03s code for SR-AL5625-01-264 by xiongxiaoliang at 2021/06/11 end */
+#else
+/*TabA7 Lite code for P210226-03264 by Hujincan at 20210309 start*/
 static int sar_charger_notifier_callback(struct notifier_block *nb,
                                 unsigned long val, void *v) {
     int ret = 0;
@@ -246,6 +295,8 @@ static int sar_charger_notifier_callback(struct notifier_block *nb,
     }
     return 0;
 }
+#endif
+/* TabA7 Lite code for OT8S-2 by chenyuqi at 20220218 end */
 /*TabA7 Lite code for P210226-03264 by Hujincan at 20210309 end*/
 
 static void sar_update_charger(struct work_struct *work)
@@ -333,6 +384,66 @@ static void hw_init(pabovXX_t this)
     }
 }
 
+/* Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/04/10 start */
+#ifdef CONFIG_HQ_PROJECT_OT8
+ssize_t abov_set_onoff(const char *buf, size_t count)
+{
+    pabovXX_t this = abov_sar_ptr;
+    pabov_t pDevice = NULL;
+    struct input_dev *input_bottom_sar = NULL;
+    struct input_dev *input_top_sar = NULL;
+
+    if (this && (pDevice = this->pDevice)){
+        if (!strncmp(buf, "1", 1)) {
+            if (this->irq_disabled == 1) {
+                enable_irq(this->irq);
+                this->irq_disabled = 0;
+            } else {
+                LOG_ERR("irq already enable!");
+            }
+            onoff_mEnabled = true;
+            LOG_INFO("onoff Function set of on\n");
+        } else if (!strncmp(buf, "0", 1)) {
+            input_bottom_sar = pDevice->pbuttonInformation->input_bottom_sar;
+            input_top_sar = pDevice->pbuttonInformation->input_top_sar;
+            if (this->irq_disabled == 0) {
+                disable_irq(this->irq);
+                this->irq_disabled = 1;
+            } else {
+                LOG_ERR("irq already disable!");
+            }
+            onoff_mEnabled = false;
+            if (input_bottom_sar && input_top_sar) {
+                /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 start*/
+                input_report_rel(input_top_sar, REL_MISC, 2);
+                input_report_rel(input_top_sar, REL_X, 2);
+                input_report_rel(input_bottom_sar, REL_MISC, 2);
+                input_report_rel(input_bottom_sar, REL_X, 2);
+                /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 end*/
+                input_sync(input_top_sar);
+                input_sync(input_bottom_sar);
+                LOG_INFO("onoff report down\n");
+            } else {
+                LOG_ERR("onoff input device has null pointer!");
+            }
+            LOG_INFO("onoff Function set of off\n");
+        } else {
+            LOG_ERR("onoff instruction error!");
+        }
+
+    } else {
+        LOG_ERR("onoff Function has null pointer!");
+    }
+    return count;
+
+}
+ssize_t abov_get_onoff(char *buf)
+{
+    return snprintf(buf, 8, "%d\n", onoff_mEnabled);
+}
+#endif
+/* Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/04/10 end */
+
 /**
  * fn static int initialize(pabovXX_t this)
  * brief Performs all initialization needed to configure the device
@@ -363,7 +474,28 @@ static int initialize(pabovXX_t this)
     }
     return -ENOMEM;
 }
-
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 start*/
+void logical_recovery(pabovXX_t this)
+{
+    u8 ch0_diff1, ch1_diff1, ch0_diff2, ch1_diff2;
+    if (g_anfr_flag == 1 ) {
+        read_register(this, 0x20, &ch0_diff1);
+        read_register(this, 0x21, &ch0_diff2);
+        read_register(this, 0x22, &ch1_diff1);
+        read_register(this, 0x23, &ch1_diff2);
+        ch0_diff = (ch0_diff1 << 8) + ch0_diff2;
+        ch1_diff = (ch1_diff1 << 8) + ch1_diff2;
+        if (g_irq_count == 1) {
+            ch0_Previous_diff = (ch0_diff1 << 8) + ch0_diff2;
+            ch1_Previous_diff = (ch1_diff1 << 8) + ch1_diff2;
+        }
+        LOG_ERR("abov_a ch0_diff = %x, ch1_diff = %x \n", ch0_diff, ch1_diff);
+        LOG_ERR("abov_a ch0_Previous_diff = %x, ch1_Previous_diff = %x \n", ch0_Previous_diff, ch1_Previous_diff);
+        if ((ch0_diff != ch0_Previous_diff) || (ch1_diff != ch1_Previous_diff) || (g_irq_count >= 12)) {
+            g_anfr_flag = 0;
+        }
+    }
+}
 /**
  * brief Handle what to do when a touch occurs
  * param this Pointer to main parent struct
@@ -384,6 +516,8 @@ static void touchProcess(pabovXX_t this)
     board = this->board;
     if (this && pDevice) {
         LOG_INFO("Inside touchProcess()\n");
+        logical_recovery(this);
+        LOG_ERR("abov_a g_irq_count = %d g_anfr_flag = %d \n", g_irq_count, g_anfr_flag);
         read_register(this, ABOV_IRQSTAT_LEVEL_REG, &i);
 
         buttons = pDevice->pbuttonInformation->buttons;
@@ -404,157 +538,187 @@ static void touchProcess(pabovXX_t this)
         }
 #endif
 
-        for (counter = 0; counter < numberOfButtons; counter++) {
-            pCurrentButton = &buttons[counter];
-            if (pCurrentButton == NULL) {
-                LOG_DBG("ERR!current button index: %d NULL!\n",
-                        counter);
-                return; /* ERRORR!!!! */
+        /* Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/04/10 start */
+        #ifdef CONFIG_HQ_PROJECT_OT8
+        if (onoff_mEnabled == false) {
+            return;
+        }
+        #endif //CONFIG_HQ_PROJECT_OT8
+        /* Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/04/10 end */
+        if (g_anfr_flag == 1) {
+            /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 start*/
+            input_report_rel(input_top_sar, REL_MISC, 1);
+            input_report_rel(input_top_sar, REL_X, 1);
+            input_report_rel(input_bottom_sar, REL_MISC, 1);
+            input_report_rel(input_bottom_sar, REL_X, 1);
+            input_sync(input_top_sar);
+            input_sync(input_bottom_sar);
+        } else {
+            for (counter = 0; counter < numberOfButtons; counter++) {
+                pCurrentButton = &buttons[counter];
+                if (pCurrentButton == NULL) {
+                    LOG_DBG("ERR!current button index: %d NULL!\n",
+                            counter);
+                    return; /* ERRORR!!!! */
+                }
+                switch (pCurrentButton->state) {
+                case IDLE: /* Button is being in far state! */
+                    if ((i & pCurrentButton->mask) == pCurrentButton->mask) {
+                        LOG_INFO("CH%d State=BODY.\n", counter);
+                        if (board->cap_channel_bottom == counter && this->channel_status & 0x01) {
+                            #ifdef HQ_FACTORY_BUILD
+                            input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 1);
+                            input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 0);
+                            #else
+                            input_report_rel(input_bottom_sar, REL_MISC, 1);
+                            input_report_rel(input_bottom_sar, REL_X, 2);
+                            #endif
+                            input_sync(input_bottom_sar);
+                        } else if (board->cap_channel_top == counter && this->channel_status & 0x02) {
+                            #ifdef HQ_FACTORY_BUILD
+                            input_report_key(input_top_sar, KEY_SAR_CLOSE, 1);
+                            input_report_key(input_top_sar, KEY_SAR_CLOSE, 0);
+                            #else
+                            input_report_rel(input_top_sar, REL_MISC, 1);
+                            input_report_rel(input_top_sar, REL_X, 2);
+                            #endif
+                            input_sync(input_top_sar);
+                        }
+                        pCurrentButton->state = S_BODY;
+                    } else if ((i & pCurrentButton->mask) == (pCurrentButton->mask & 0x05)) {
+                        LOG_INFO("CH%d State=PROX.\n", counter);
+                        if (board->cap_channel_bottom == counter && this->channel_status & 0x01) {
+                            #ifdef HQ_FACTORY_BUILD
+                            input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 1);
+                            input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 0);
+                            #else
+                            input_report_rel(input_bottom_sar, REL_MISC, 1);
+                            input_report_rel(input_bottom_sar, REL_X, 2);
+                            #endif
+                            input_sync(input_bottom_sar);
+                        } else if (board->cap_channel_top == counter && this->channel_status & 0x02) {
+                            #ifdef HQ_FACTORY_BUILD
+                            input_report_key(input_top_sar, KEY_SAR_CLOSE, 1);
+                            input_report_key(input_top_sar, KEY_SAR_CLOSE, 0);
+                            #else
+                            input_report_rel(input_top_sar, REL_MISC, 1);
+                            input_report_rel(input_top_sar, REL_X, 2);
+                            #endif
+                            input_sync(input_top_sar);
+                        }
+                        pCurrentButton->state = S_PROX;
+                    } else {
+                        LOG_INFO("CH%d still in IDLE State.\n", counter);
+                    }
+                    break;
+                case S_PROX: /* Button is being in proximity! */
+                    if ((i & pCurrentButton->mask) == pCurrentButton->mask) {
+                        LOG_INFO("CH%d State=BODY.\n", counter);
+                        if (board->cap_channel_bottom == counter && this->channel_status & 0x01) {
+                            #ifdef HQ_FACTORY_BUILD
+                            input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 1);
+                            input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 0);
+                            #else
+                            input_report_rel(input_bottom_sar, REL_MISC, 1);
+                            input_report_rel(input_bottom_sar, REL_X, 2);
+                            #endif
+                            input_sync(input_bottom_sar);
+                        } else if (board->cap_channel_top == counter && this->channel_status & 0x02) {
+                            #ifdef HQ_FACTORY_BUILD
+                            input_report_key(input_top_sar, KEY_SAR_CLOSE, 1);
+                            input_report_key(input_top_sar, KEY_SAR_CLOSE, 0);
+                            #else
+                            input_report_rel(input_top_sar, REL_MISC, 1);
+                            input_report_rel(input_top_sar, REL_X, 2);
+                            #endif
+                            input_sync(input_top_sar);
+                        }
+                        pCurrentButton->state = S_BODY;
+                    } else if ((i & pCurrentButton->mask) == (pCurrentButton->mask & 0x05)) {
+                        LOG_INFO("CH%d still in PROX State.\n", counter);
+                    } else{
+                        LOG_INFO("CH%d State=IDLE.\n", counter);
+                        if (board->cap_channel_bottom == counter && this->channel_status & 0x01) {
+                            #ifdef HQ_FACTORY_BUILD
+                            input_report_key(input_bottom_sar, KEY_SAR2_FAR, 1);
+                            input_report_key(input_bottom_sar, KEY_SAR2_FAR, 0);
+                            #else
+                            input_report_rel(input_bottom_sar, REL_MISC, 2);
+                            input_report_rel(input_bottom_sar, REL_X, 2);
+                            #endif
+                            input_sync(input_bottom_sar);
+                        } else if (board->cap_channel_top == counter && this->channel_status & 0x02) {
+                            #ifdef HQ_FACTORY_BUILD
+                            input_report_key(input_top_sar, KEY_SAR_FAR, 1);
+                            input_report_key(input_top_sar, KEY_SAR_FAR, 0);
+                            #else
+                            input_report_rel(input_top_sar, REL_MISC, 2);
+                            input_report_rel(input_top_sar, REL_X, 2);
+                            #endif
+                            input_sync(input_top_sar);
+                        }
+                        pCurrentButton->state = IDLE;
+                    }
+                    break;
+                case S_BODY: /* Button is being in 0mm! */
+                    if ((i & pCurrentButton->mask) == pCurrentButton->mask) {
+                        LOG_INFO("CH%d still in BODY State.\n", counter);
+                    } else if ((i & pCurrentButton->mask) == (pCurrentButton->mask & 0x05)) {
+                        LOG_INFO("CH%d State=PROX.\n", counter);
+                        if (board->cap_channel_bottom == counter && this->channel_status & 0x01) {
+                            #ifdef HQ_FACTORY_BUILD
+                            input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 1);
+                            input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 0);
+                            #else
+                            input_report_rel(input_bottom_sar, REL_MISC, 1);
+                            input_report_rel(input_bottom_sar, REL_X, 2);
+                            #endif
+                            input_sync(input_bottom_sar);
+                        } else if (board->cap_channel_top == counter && this->channel_status & 0x02) {
+                            #ifdef HQ_FACTORY_BUILD
+                            input_report_key(input_top_sar, KEY_SAR_CLOSE, 1);
+                            input_report_key(input_top_sar, KEY_SAR_CLOSE, 0);
+                            #else
+                            input_report_rel(input_top_sar, REL_MISC, 1);
+                            input_report_rel(input_top_sar, REL_X, 2);
+                            #endif
+                            input_sync(input_top_sar);
+                        }
+                        pCurrentButton->state = S_PROX;
+                    } else{
+                        LOG_INFO("CH%d State=IDLE.\n", counter);
+                        if (board->cap_channel_bottom == counter && this->channel_status & 0x01) {
+                            #ifdef HQ_FACTORY_BUILD
+                            input_report_key(input_bottom_sar, KEY_SAR2_FAR, 1);
+                            input_report_key(input_bottom_sar, KEY_SAR2_FAR, 0);
+                            #else
+                            input_report_rel(input_bottom_sar, REL_MISC, 2);
+                            input_report_rel(input_bottom_sar, REL_X, 2);
+                            #endif
+                            input_sync(input_bottom_sar);
+                        } else if (board->cap_channel_top == counter && this->channel_status & 0x02) {
+                            #ifdef HQ_FACTORY_BUILD
+                            input_report_key(input_top_sar, KEY_SAR_FAR, 1);
+                            input_report_key(input_top_sar, KEY_SAR_FAR, 0);
+                            #else
+                            input_report_rel(input_top_sar, REL_MISC, 2);
+                            input_report_rel(input_top_sar, REL_X, 2);
+                            /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 end*/
+                            #endif
+                            input_sync(input_top_sar);
+                        }
+                        pCurrentButton->state = IDLE;
+                    }
+                    break;
+                default: /* Shouldn't be here, device only allowed ACTIVE or IDLE */
+                    break;
+                };
             }
-            switch (pCurrentButton->state) {
-            case IDLE: /* Button is being in far state! */
-                if ((i & pCurrentButton->mask) == pCurrentButton->mask) {
-                    LOG_INFO("CH%d State=BODY.\n", counter);
-                    if (board->cap_channel_bottom == counter) {
-                        #ifdef HQ_FACTORY_BUILD
-                        input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 1);
-                        input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 0);
-                        #else
-                        input_report_rel(input_bottom_sar, REL_MISC, 1);
-                        #endif
-                        input_sync(input_bottom_sar);
-                    } else if (board->cap_channel_top == counter) {
-                        #ifdef HQ_FACTORY_BUILD
-                        input_report_key(input_top_sar, KEY_SAR_CLOSE, 1);
-                        input_report_key(input_top_sar, KEY_SAR_CLOSE, 0);
-                        #else
-                        input_report_rel(input_top_sar, REL_MISC, 1);
-                        #endif
-                        input_sync(input_top_sar);
-                    }
-                    pCurrentButton->state = S_BODY;
-                } else if ((i & pCurrentButton->mask) == (pCurrentButton->mask & 0x05)) {
-                    LOG_INFO("CH%d State=PROX.\n", counter);
-                    if (board->cap_channel_bottom == counter) {
-                        #ifdef HQ_FACTORY_BUILD
-                        input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 1);
-                        input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 0);
-                        #else
-                        input_report_rel(input_bottom_sar, REL_MISC, 1);
-                        #endif
-                        input_sync(input_bottom_sar);
-                    } else if (board->cap_channel_top == counter) {
-                        #ifdef HQ_FACTORY_BUILD
-                        input_report_key(input_top_sar, KEY_SAR_CLOSE, 1);
-                        input_report_key(input_top_sar, KEY_SAR_CLOSE, 0);
-                        #else
-                        input_report_rel(input_top_sar, REL_MISC, 1);
-                        #endif
-                        input_sync(input_top_sar);
-                    }
-                    pCurrentButton->state = S_PROX;
-                } else {
-                    LOG_INFO("CH%d still in IDLE State.\n", counter);
-                }
-                break;
-            case S_PROX: /* Button is being in proximity! */
-                if ((i & pCurrentButton->mask) == pCurrentButton->mask) {
-                    LOG_INFO("CH%d State=BODY.\n", counter);
-                    if (board->cap_channel_bottom == counter) {
-                        #ifdef HQ_FACTORY_BUILD
-                        input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 1);
-                        input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 0);
-                        #else
-                        input_report_rel(input_bottom_sar, REL_MISC, 1);
-                        #endif
-                        input_sync(input_bottom_sar);
-                    } else if (board->cap_channel_top == counter) {
-                        #ifdef HQ_FACTORY_BUILD
-                        input_report_key(input_top_sar, KEY_SAR_CLOSE, 1);
-                        input_report_key(input_top_sar, KEY_SAR_CLOSE, 0);
-                        #else
-                        input_report_rel(input_top_sar, REL_MISC, 1);
-                        #endif
-                        input_sync(input_top_sar);
-                    }
-                    pCurrentButton->state = S_BODY;
-                } else if ((i & pCurrentButton->mask) == (pCurrentButton->mask & 0x05)) {
-                    LOG_INFO("CH%d still in PROX State.\n", counter);
-                } else{
-                    LOG_INFO("CH%d State=IDLE.\n", counter);
-                    if (board->cap_channel_bottom == counter) {
-                        #ifdef HQ_FACTORY_BUILD
-                        input_report_key(input_bottom_sar, KEY_SAR2_FAR, 1);
-                        input_report_key(input_bottom_sar, KEY_SAR2_FAR, 0);
-                        #else
-                        input_report_rel(input_bottom_sar, REL_MISC, 2);
-                        #endif
-                        input_sync(input_bottom_sar);
-                    } else if (board->cap_channel_top == counter) {
-                        #ifdef HQ_FACTORY_BUILD
-                        input_report_key(input_top_sar, KEY_SAR_FAR, 1);
-                        input_report_key(input_top_sar, KEY_SAR_FAR, 0);
-                        #else
-                        input_report_rel(input_top_sar, REL_MISC, 2);
-                        #endif
-                        input_sync(input_top_sar);
-                    }
-                    pCurrentButton->state = IDLE;
-                }
-                break;
-            case S_BODY: /* Button is being in 0mm! */
-                if ((i & pCurrentButton->mask) == pCurrentButton->mask) {
-                    LOG_INFO("CH%d still in BODY State.\n", counter);
-                } else if ((i & pCurrentButton->mask) == (pCurrentButton->mask & 0x05)) {
-                    LOG_INFO("CH%d State=PROX.\n", counter);
-                    if (board->cap_channel_bottom == counter) {
-                        #ifdef HQ_FACTORY_BUILD
-                        input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 1);
-                        input_report_key(input_bottom_sar, KEY_SAR2_CLOSE, 0);
-                        #else
-                        input_report_rel(input_bottom_sar, REL_MISC, 1);
-                        #endif
-                        input_sync(input_bottom_sar);
-                    } else if (board->cap_channel_top == counter) {
-                        #ifdef HQ_FACTORY_BUILD
-                        input_report_key(input_top_sar, KEY_SAR_CLOSE, 1);
-                        input_report_key(input_top_sar, KEY_SAR_CLOSE, 0);
-                        #else
-                        input_report_rel(input_top_sar, REL_MISC, 1);
-                        #endif
-                        input_sync(input_top_sar);
-                    }
-                    pCurrentButton->state = S_PROX;
-                } else{
-                    LOG_INFO("CH%d State=IDLE.\n", counter);
-                    if (board->cap_channel_bottom == counter) {
-                        #ifdef HQ_FACTORY_BUILD
-                        input_report_key(input_bottom_sar, KEY_SAR2_FAR, 1);
-                        input_report_key(input_bottom_sar, KEY_SAR2_FAR, 0);
-                        #else
-                        input_report_rel(input_bottom_sar, REL_MISC, 2);
-                        #endif
-                        input_sync(input_bottom_sar);
-                    } else if (board->cap_channel_top == counter) {
-                        #ifdef HQ_FACTORY_BUILD
-                        input_report_key(input_top_sar, KEY_SAR_FAR, 1);
-                        input_report_key(input_top_sar, KEY_SAR_FAR, 0);
-                        #else
-                        input_report_rel(input_top_sar, REL_MISC, 2);
-                        #endif
-                        input_sync(input_top_sar);
-                    }
-                    pCurrentButton->state = IDLE;
-                }
-                break;
-            default: /* Shouldn't be here, device only allowed ACTIVE or IDLE */
-                break;
-            };
         }
         LOG_INFO("Leaving touchProcess()\n");
     }
 }
-
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 end*/
 static int abov_get_nirq_state(unsigned irq_gpio)
 {
     if (irq_gpio) {
@@ -645,7 +809,7 @@ static ssize_t enable_show(struct class *class,
 {
     return snprintf(buf, 8, "%d\n", mEnabled);
 }
-
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 start*/
 static ssize_t enable_store(struct class *class,
         struct class_attribute *attr,
         const char *buf, size_t count)
@@ -664,6 +828,16 @@ static ssize_t enable_store(struct class *class,
 
     if (!strncmp(buf, "1", 1)) {
         LOG_DBG("enable cap sensor\n");
+/* TabA7 Lite code for OT8S-2 by chenyuqi at 20220218 start */
+#ifdef CONFIG_HQ_PROJECT_HS03S
+        enable_irq(this->irq);
+        write_register(this, ABOV_CTRL_MODE_REG, 0x00);//activity mode
+        this->statusFunc[0](this);
+        mEnabled = 1;
+    } else if (!strncmp(buf, "0", 1)) {
+        LOG_DBG("disable cap sensor\n");
+        disable_irq(this->irq);
+#else
         enable_irq(this->irq);
         write_register(this, ABOV_CTRL_MODE_REG, 0x00);
         this->statusFunc[0](this);
@@ -671,7 +845,9 @@ static ssize_t enable_store(struct class *class,
     } else if (!strncmp(buf, "0", 1)) {
         LOG_DBG("disable cap sensor\n");
         disable_irq(this->irq);
-        write_register(this, ABOV_CTRL_MODE_REG, 0x01);
+#endif
+/* TabA7 Lite code for OT8S-2 by chenyuqi at 20220218 end */
+        write_register(this, ABOV_CTRL_MODE_REG, 0x01);//sleep mode, Notice:State change will change sar mode from sleep to activity
         #ifdef HQ_FACTORY_BUILD
         input_report_key(input_bottom_sar, KEY_SAR2_FAR, 1);
         input_report_key(input_bottom_sar, KEY_SAR2_FAR, 0);
@@ -679,7 +855,9 @@ static ssize_t enable_store(struct class *class,
         input_report_key(input_top_sar, KEY_SAR_FAR, 0);
         #else
         input_report_rel(input_bottom_sar, REL_MISC, 2);
+        input_report_rel(input_bottom_sar, REL_X, 2);
         input_report_rel(input_top_sar, REL_MISC, 2);
+        input_report_rel(input_top_sar, REL_X, 2);
         #endif
         input_sync(input_bottom_sar);
         input_sync(input_top_sar);
@@ -690,7 +868,7 @@ static ssize_t enable_store(struct class *class,
 
     return count;
 }
-
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 end*/
 static CLASS_ATTR_RW(enable);
 
 static ssize_t reg_show(struct class *class,
@@ -768,7 +946,11 @@ static int enable_bottom(unsigned int enable)
         if(this->channel_status == 0) {
             write_register(this, ABOV_CTRL_MODE_REG, 0x00);
             if(this->irq_disabled == 1){
+#ifdef CONFIG_HQ_PROJECT_HS03S
+                enable_irq_wake(this->irq);
+#else
                 enable_irq(this->irq);
+#endif
                 this->irq_disabled = 0;
             }
             mEnabled = 1;
@@ -779,24 +961,30 @@ static int enable_bottom(unsigned int enable)
         }
         LOG_DBG("this->channel_status = 0x%x \n",this->channel_status);
 
-#if defined(CONFIG_SENSORS)
         if (this->skip_data == true) {
             LOG_INFO("%s - skip grip event\n", __func__);
         } else {
-#endif
-            read_register(this, ABOV_IRQSTAT_LEVEL_REG, &i);
-            if ((i & pCurrentButton->mask) == (pCurrentButton->mask & 0x05)) {
-                input_report_rel(input_bottom_sar, REL_MISC, 1);
-                input_sync(input_bottom_sar);
-                pCurrentButton->state = S_PROX;
+#ifdef CONFIG_HQ_PROJECT_OT8
+            if (!onoff_mEnabled) {
+                LOG_INFO("%s - onoff_mEnabled false\n", __func__);
             } else {
-                input_report_rel(input_bottom_sar, REL_MISC, 2);
-                input_sync(input_bottom_sar);
-                pCurrentButton->state = IDLE;
+#endif //CONFIG_HQ_PROJECT_OT8
+                read_register(this, ABOV_IRQSTAT_LEVEL_REG, &i);
+                if ((i & pCurrentButton->mask) == (pCurrentButton->mask & 0x05)) {
+                    input_report_rel(input_bottom_sar, REL_MISC, 1);
+                    input_report_rel(input_bottom_sar, REL_X, 2);
+                    input_sync(input_bottom_sar);
+                    pCurrentButton->state = S_PROX;
+                } else {
+                    input_report_rel(input_bottom_sar, REL_MISC, 2);
+                    input_report_rel(input_bottom_sar, REL_X, 2);
+                    input_sync(input_bottom_sar);
+                    pCurrentButton->state = IDLE;
+                }
+#ifdef CONFIG_HQ_PROJECT_OT8
             }
-#if defined(CONFIG_SENSORS)
+#endif //CONFIG_HQ_PROJECT_OT8
         }
-#endif
         touchProcess(this);
     } else if (enable == 0) {
         if(this->channel_status & 0x01) {
@@ -806,7 +994,11 @@ static int enable_bottom(unsigned int enable)
         if(this->channel_status == 0) {
             write_register(this, ABOV_CTRL_MODE_REG, 0x01);
             if(this->irq_disabled == 0){
+#ifdef CONFIG_HQ_PROJECT_HS03S
+                disable_irq_wake(this->irq);
+#else
                 disable_irq(this->irq);
+#endif
                 this->irq_disabled = 1;
             }
             mEnabled = 0;
@@ -836,7 +1028,11 @@ static int enable_top(unsigned int enable)
         if(this->channel_status == 0) {
             write_register(this, ABOV_CTRL_MODE_REG, 0x00);
             if(this->irq_disabled == 1){
+#ifdef CONFIG_HQ_PROJECT_HS03S
+                enable_irq_wake(this->irq);
+#else
                 enable_irq(this->irq);
+#endif
                 this->irq_disabled = 0;
             }
             mEnabled = 1;
@@ -847,24 +1043,30 @@ static int enable_top(unsigned int enable)
         }
         LOG_DBG("this->channel_status = 0x%x \n",this->channel_status);
 
-#if defined(CONFIG_SENSORS)
         if (this->skip_data == true) {
             LOG_INFO("%s - skip grip event\n", __func__);
         } else {
-#endif
-            read_register(this, ABOV_IRQSTAT_LEVEL_REG, &i);
-            if ((i & pCurrentButton->mask) == (pCurrentButton->mask & 0x05)) {
-                input_report_rel(input_top_sar, REL_MISC, 1);
-                input_sync(input_top_sar);
-                pCurrentButton->state = S_PROX;
+#ifdef CONFIG_HQ_PROJECT_OT8
+            if (!onoff_mEnabled) {
+                LOG_INFO("%s - onoff_mEnabled false\n", __func__);
             } else {
-                input_report_rel(input_top_sar, REL_MISC, 2);
-                input_sync(input_top_sar);
-                pCurrentButton->state = IDLE;
+#endif //CONFIG_HQ_PROJECT_OT8
+                read_register(this, ABOV_IRQSTAT_LEVEL_REG, &i);
+                if ((i & pCurrentButton->mask) == (pCurrentButton->mask & 0x05)) {
+                    input_report_rel(input_top_sar, REL_MISC, 1);
+                    input_report_rel(input_top_sar, REL_X, 2);
+                    input_sync(input_top_sar);
+                    pCurrentButton->state = S_PROX;
+                } else {
+                    input_report_rel(input_top_sar, REL_MISC, 2);
+                    input_report_rel(input_top_sar, REL_X, 2);
+                    input_sync(input_top_sar);
+                    pCurrentButton->state = IDLE;
+                }
+#ifdef CONFIG_HQ_PROJECT_OT8
             }
-#if defined(CONFIG_SENSORS)
+#endif //CONFIG_HQ_PROJECT_OT8
         }
-#endif
         touchProcess(this);
     } else if (enable == 0) {
         if(this->channel_status & 0x02) {
@@ -874,7 +1076,11 @@ static int enable_top(unsigned int enable)
         if(this->channel_status == 0) {
             write_register(this, ABOV_CTRL_MODE_REG, 0x01);
             if(this->irq_disabled == 0){
+#ifdef CONFIG_HQ_PROJECT_HS03S
+                disable_irq_wake(this->irq);
+#else
                 disable_irq(this->irq);
+#endif
                 this->irq_disabled = 1;
             }
             mEnabled = 0;
@@ -907,6 +1113,16 @@ static ssize_t abovxx_enable_show(struct device *dev,
         }
     }
 
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    if(!strncmp(temp_input_dev->name,"grip_sensor_sub",sizeof("grip_sensor_sub")))
+    {
+        if(this->channel_status & 0x02) {
+            status = 1;    
+        } else {
+            status = 0;
+        }
+    }
+#else
     if(!strncmp(temp_input_dev->name,"grip_sensor_wifi",sizeof("grip_sensor_wifi")))
     {
         if(this->channel_status & 0x02) {
@@ -915,6 +1131,7 @@ static ssize_t abovxx_enable_show(struct device *dev,
             status = 0;
         }
     }
+#endif
 
     return snprintf(buf, 8, "%d\n", status);
 }
@@ -945,7 +1162,16 @@ static ssize_t abovxx_enable_store (struct device *dev,
             enable_bottom(0);
         }
     }
-
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    if(!strncmp(temp_input_dev->name,"grip_sensor_sub",sizeof("grip_sensor_sub")))
+    {
+        if (enable == 1) {
+            enable_top(1);
+        } else {
+            enable_top(0);
+        }
+    }
+#else
     if(!strncmp(temp_input_dev->name,"grip_sensor_wifi",sizeof("grip_sensor_wifi")))
     {
         if (enable == 1) {
@@ -954,6 +1180,7 @@ static ssize_t abovxx_enable_store (struct device *dev,
             enable_top(0);
         }
     }
+#endif
 
     return count;
 }
@@ -1048,7 +1275,11 @@ static ssize_t abovxx_grip_flush_store(struct device *dev,
     if(!strncmp(dev->kobj.name,"grip_sensor",sizeof("grip_sensor"))) {
         input_report_rel(input_bottom_sar, REL_MAX, val);
         input_sync(input_bottom_sar);
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    } else if(!strncmp(dev->kobj.name,"grip_sensor_sub",sizeof("grip_sensor_sub"))) {
+#else
     } else if(!strncmp(dev->kobj.name,"grip_sensor_wifi",sizeof("grip_sensor_wifi"))) {
+#endif
         input_report_rel(input_top_sar, REL_MAX, val);
         input_sync(input_top_sar);
     }
@@ -1074,12 +1305,21 @@ static struct device_attribute *sensor_attrs[] = {
     NULL,
 };
 
+#ifdef CONFIG_HQ_PROJECT_HS03S
+static struct device_attribute *sub_sensor_attrs[] = {
+    &dev_attr_name,
+    &dev_attr_vendor,
+    &dev_attr_grip_flush,
+    NULL,
+};
+#else
 static struct device_attribute *wifi_sensor_attrs[] = {
     &dev_attr_name,
     &dev_attr_vendor,
     &dev_attr_grip_flush,
     NULL,
 };
+#endif //hs03s
 #endif
 
 static int _i2c_adapter_block_write(struct i2c_client *client, u8 *data, u8 len)
@@ -1187,6 +1427,7 @@ retry:
     }
 }
 
+/*TabA7 Lite code for OT8-4754 by Hujincan at 20210425 start*/
 static int abov_tk_fw_mode_enter(struct i2c_client *client)
 {
     int ret = 0;
@@ -1203,7 +1444,7 @@ static int abov_tk_fw_mode_enter(struct i2c_client *client)
     SLEEP(5);
 
     ret = i2c_master_recv(client, buf, 1);
-    if (ret < 0) {
+    if (buf[0] != 0x3A) {
         LOG_ERR("Enter fw mode fail ... Device ID:%#x\n",buf[0]);
         return -EIO;
     }
@@ -1211,6 +1452,7 @@ static int abov_tk_fw_mode_enter(struct i2c_client *client)
     LOG_INFO("Enter fw mode succ ... Device ID:%#x\n", buf[0]);
     return 0;
 }
+/*TabA7 Lite code for OT8-4754 by Hujincan at 20210425 end*/
 
 static int abov_tk_fw_mode_exit(struct i2c_client *client)
 {
@@ -1621,7 +1863,7 @@ static int abov_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
     msleep(100);
 
-    /* detect if abov exist or not */
+ /* detect if abov exist or not */
     ret = abov_detect(client);
     if (ret == 0) {
         ret = -ENODEV;
@@ -1715,6 +1957,10 @@ static int abov_probe(struct i2c_client *client, const struct i2c_device_id *id)
     __set_bit(KEY_SAR2_FAR, input_bottom_sar->keybit);
     __set_bit(KEY_SAR2_CLOSE, input_bottom_sar->keybit);
     #else
+    /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 start*/
+    __set_bit(EV_REL, input_bottom_sar->evbit);
+    __set_bit(REL_X, input_bottom_sar->relbit);
+    /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 end*/
     input_set_capability(input_bottom_sar, EV_REL, REL_MISC);
     input_set_capability(input_bottom_sar, EV_REL, REL_MAX);
     #endif
@@ -1744,13 +1990,21 @@ static int abov_probe(struct i2c_client *client, const struct i2c_device_id *id)
     __set_bit(KEY_SAR_FAR, input_top_sar->keybit);
     __set_bit(KEY_SAR_CLOSE, input_top_sar->keybit);
     #else
+    /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 start*/
+    __set_bit(EV_REL, input_top_sar->evbit);
+    __set_bit(REL_X, input_top_sar->relbit);
+    /*Tab A7 lite_U code for SR-AX3565U-01-1 by xiayujie at 2023/8/8 end*/
     input_set_capability(input_top_sar, EV_REL, REL_MISC);
     input_set_capability(input_top_sar, EV_REL, REL_MAX);
     #endif
     /* save the input pointer and finish initialization */
     pDevice->pbuttonInformation->input_top_sar = input_top_sar;
     /* save the input pointer and finish initialization */
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    input_top_sar->name = "grip_sensor_sub";
+#else
     input_top_sar->name = "grip_sensor_wifi";
+#endif
     input_top_sar->id.bustype = BUS_I2C;
     if (input_register_device(input_top_sar)) {
         LOG_ERR("add abov sar sensor top unsuccess\n");
@@ -1767,11 +2021,19 @@ static int abov_probe(struct i2c_client *client, const struct i2c_device_id *id)
         goto exit_sensors_register;
     }
 
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    ret = sensors_register(&pplatData->factory_device_sub, pplatData, sub_sensor_attrs, SUB_MODULE_NAME);
+    if (ret) {
+        LOG_ERR("%s - cound not register sensor(%d).\n", __func__, ret);
+        goto exit_sensors_register_sub;
+    }
+#else
     ret = sensors_register(&pplatData->factory_device_wifi, pplatData, wifi_sensor_attrs, WIFI_MODULE_NAME);
     if (ret) {
         LOG_ERR("%s - cound not register sensor(%d).\n", __func__, ret);
         goto exit_sensors_register_wifi;
     }
+#endif
 
     ret = sysfs_create_group(&input_bottom_sar->dev.kobj, &abovxx_attributes_group);
     if (ret) {
@@ -1810,12 +2072,18 @@ static int abov_probe(struct i2c_client *client, const struct i2c_device_id *id)
         goto exit_creat_file;
     }
 
-    ret = class_create_file(&capsense_class, &class_attr_force_update_fw);
-    if (ret < 0) {
-        LOG_DBG("Create update_fw file failed (%d)\n", ret);
-        goto exit_creat_file;
-    }
-    abovXX_sar_init(this);
+        ret = class_create_file(&capsense_class, &class_attr_force_update_fw);
+        if (ret < 0) {
+            LOG_DBG("Create update_fw file failed (%d)\n", ret);
+            goto exit_creat_file;
+        }
+        /*Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/03/02 start*/
+        #ifdef CONFIG_HQ_PROJECT_OT8
+        sar_func.set_onoff = abov_set_onoff;
+        sar_func.get_onoff = abov_get_onoff;
+        #endif
+        /*Tab A7 lite_T code for AX3565TDEV-837 by duxinqi at 2022/03/02 end*/
+        abovXX_sar_init(this);
 
     this->loading_fw = false;
     if (isForceUpdate == true) {
@@ -1824,7 +2092,9 @@ static int abov_probe(struct i2c_client *client, const struct i2c_device_id *id)
         INIT_WORK(&this->fw_update_work, capsense_update_work);
     }
     schedule_work(&this->fw_update_work);
-
+    /*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 start*/
+    g_anfr_flag = 1;
+    /*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 end*/
     LOG_INFO("abov_probe end()\n");
     return 0;
 
@@ -1833,8 +2103,13 @@ exit_creat_file:
     sysfs_remove_group(&input_bottom_sar->dev.kobj,&abovxx_attributes_group);
     sysfs_remove_group(&input_top_sar->dev.kobj,&abovxx_attributes_group);
 exit_input_create:
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    sensors_unregister(pplatData->factory_device_sub, sub_sensor_attrs);
+exit_sensors_register_sub:
+#else
     sensors_unregister(pplatData->factory_device_wifi, wifi_sensor_attrs);
 exit_sensors_register_wifi:
+#endif
     sensors_unregister(pplatData->factory_device, sensor_attrs);
 exit_sensors_register:
 #endif
@@ -1850,7 +2125,7 @@ exit_alloc_dev:
 exit_alloc_mem:
 exit_no_detect_device:
     kfree(pplatData);
-    return ret;
+    return ret;    
 }
 
 /**
@@ -1878,18 +2153,18 @@ static int abov_remove(struct i2c_client *client)
     return abovXX_sar_remove(this);
 }
 
-/*TabA7 Lite code for OT8-2395 by Hujincan at 20210129 start*/
+/*Tab A7 lite_U code for AX3565AU-260 by duxinqi at 20221108 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
 static int abov_suspend(struct device *dev)
 {
     pabovXX_t this = dev_get_drvdata(dev);
     if (this){
-        LOG_INFO("ABOV suspend: disable irq!\n");
-        disable_irq(this->irq);
+        LOG_INFO("ABOV suspend!\n");
         if (mEnabled){
             write_register(this, ABOV_CTRL_MODE_REG, 0x01);//sleep mode 30ms check
         }
         else{
-            write_register(this, ABOV_CTRL_MODE_REG, 0x02);//stop mode
+            write_register(this, ABOV_CTRL_MODE_REG, 0x02);// stop mode
         }
     }
     return 0;
@@ -1898,15 +2173,51 @@ static int abov_resume(struct device *dev)
 {
     pabovXX_t this = dev_get_drvdata(dev);
     if (this){
-        LOG_INFO("ABOV resume: enable irq!\n");
+        LOG_INFO("ABOV resume!\n");
         if (mEnabled){
             write_register(this, ABOV_CTRL_MODE_REG, 0x00);//activity mode
         }
-        enable_irq(this->irq);
     }
     return 0;
 }
-/*TabA7 Lite code for OT8-2395 by Hujincan at 20210129 end*/
+#endif //CONFIG_HQ_PROJECT_HS03S
+#ifdef CONFIG_HQ_PROJECT_OT8
+static int abov_suspend(struct device *dev)
+{
+    pabovXX_t this = dev_get_drvdata(dev);
+    if (this){
+        LOG_INFO("ABOV suspend 1103!\n");
+        if (!mEnabled){
+            if(this->irq_disabled == 0){
+                disable_irq(this->irq);
+                this->irq_disabled = 1;
+                LOG_INFO("disable irq 1103!\n");
+            }
+        }
+        write_register(this, ABOV_CTRL_MODE_REG, 0x01);//sleep mode 300ms check
+        LOG_INFO("abov sleep mode 1103!\n");
+    }
+    return 0;
+}
+static int abov_resume(struct device *dev)
+{
+    pabovXX_t this = dev_get_drvdata(dev);
+    if (this){
+        LOG_INFO("ABOV resume 1103!\n");
+        if (!mEnabled){
+            if(this->irq_disabled == 1){
+                enable_irq(this->irq);
+                this->irq_disabled = 0;
+                LOG_INFO("enable irq 1103!\n");
+            }
+        }
+        write_register(this, ABOV_CTRL_MODE_REG, 0x00);//activity mode
+        LOG_INFO("abov activity mode 1103!\n");
+    }
+    return 0;
+}
+#endif //CONFIG_HQ_PROJECT_OT8
+/*Tab A7 lite_U code for AX3565AU-260 by duxinqi at 20221108 end*/
 
 static const struct dev_pm_ops abov_pm_ops = {
     .suspend = abov_suspend,
@@ -1996,6 +2307,7 @@ static void abovXX_worker_func(struct work_struct *work)
         LOG_INFO("abovXX_worker_func, NULL work_struct\n");
     }
 }
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 start*/
 static irqreturn_t abovXX_interrupt_thread(int irq, void *data)
 {
     pabovXX_t this = 0;
@@ -2004,12 +2316,18 @@ static irqreturn_t abovXX_interrupt_thread(int irq, void *data)
     mutex_lock(&this->mutex);
     LOG_INFO("abovXX_irq\n");
     if ((!this->get_nirq_low) || this->get_nirq_low(this->board->irq_gpio))
+    {
         abovXX_process_interrupt(this, 1);
+        if (g_anfr_flag == 1) {
+            g_irq_count++;
+        }
+    }
     else
         LOG_DBG("abovXX_irq - nirq read high\n");
     mutex_unlock(&this->mutex);
     return IRQ_HANDLED;
 }
+/*Tab A7 lite_T code for SR-AX3565A-01-166 by duxinqi at 2022/10/18 start*/
 #else
 static void abovXX_schedule_work(pabovXX_t this, unsigned long delay)
 {

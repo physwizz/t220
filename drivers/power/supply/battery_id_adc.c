@@ -2,7 +2,7 @@
 /*
  * Copyright (C) 2020.
  */
-/*TabA7 Lite code for SR-AX3565-01-95 add batt_id and battery profile by wenyaqi at 20201201 start*/
+/*HS03s for SR-AL5625-01-251 by wenyaqi at 20210425 start*/
 
 #include <linux/device.h>
 #include <linux/module.h>
@@ -142,4 +142,4 @@ module_init(battery_id_adc_init);
 MODULE_AUTHOR("zh");
 MODULE_DESCRIPTION("battery adc driver");
 MODULE_LICENSE("GPL");
-/*TabA7 Lite code for SR-AX3565-01-95 add batt_id and battery profile by wenyaqi at 20201201 end*/
+/*HS03s for SR-AL5625-01-251 by wenyaqi at 20210425 end*/

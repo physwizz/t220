@@ -72,18 +72,6 @@ static void sec_power_off(void)
 	__inner_flush_dcache_all();
 
 	while (1) {
-		/* Check reboot charging */
-		if (ac_val.intval || usb_val.intval || wc_val.intval) {
-			pr_emerg("%s: charger connected, reboot!\n", __func__);
-			/* To enter LP charging */
-			LAST_RR_SET(is_power_reset, SEC_POWER_OFF);
-			LAST_RR_SET(power_reset_reason, SEC_RESET_REASON_IN_OFFSEQ);
-
-			mach_restart(REBOOT_COLD, "hw reset");
-
-			while (1);
-		}
-
 		/* wait for power button release */
 		pressed = mtk_pmic_pwrkey_status();
 		if (!pressed) {
@@ -117,6 +105,8 @@ static void sec_reboot(enum reboot_mode reboot_mode, const char *cmd)
 			LAST_RR_SET(power_reset_reason, SEC_RESET_REASON_RECOVERY);
 		else if (!strcmp(cmd, "download"))
 			LAST_RR_SET(power_reset_reason, SEC_RESET_REASON_DOWNLOAD);
+		else if (!strcmp(cmd, "bootloader"))
+			LAST_RR_SET(power_reset_reason, SEC_RESET_REASON_BOOTLOADER);
 		else if (!strcmp(cmd, "upload"))
 			LAST_RR_SET(power_reset_reason, SEC_RESET_REASON_UPLOAD);
 		else if (!strcmp(cmd, "secure"))

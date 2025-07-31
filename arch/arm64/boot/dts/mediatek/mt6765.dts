@@ -13,6 +13,7 @@
 #include <dt-bindings/gce/mt6765-gce.h>
 #include <generated/autoconf.h>
 #include <dt-bindings/soc/mediatek,boot-mode.h>
+#include <dt-bindings/phy/phy.h>
 
 /dts-v1/;
 
@@ -37,16 +38,16 @@ firmware_class.path=/vendor/firmware";
 		kaslr-seed = <0 0>;
 	};
 
+	/* hs03s code for SR-AL5625-01-155 by xiongxiaoliang at 2021/04/25 start */
 	regulator_vibrator {
 		compatible = "regulator-vibrator";
-    /*TabA7 Lite code for SR-AX3565-01-94 by Hujincan at 20201209 start*/
 		min-volt = <3000000>;
 		max-volt = <3000000>;
-    /*TabA7 Lite code for SR-AX3565-01-94 by Hujincan at 20201209 end*/
 		min-limit = <15>;
 		max-limit = <15000>;
 		vib-supply = <&mt_pmic_vibr_ldo_reg>;
 	};
+	/* hs03s code for SR-AL5625-01-155 by xiongxiaoliang at 2021/04/25 end */
 
 	cluster0_opp: opp_table0 {
 		compatible = "operating-points-v2";
@@ -490,34 +491,27 @@ firmware_class.path=/vendor/firmware";
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
-
-		cccimdee-reserved-memory@44640000 {
-			compatible = "mediatek,ccci-md-ee-dump";
-			reg = <0 0x48400000 0 0x1c2000>;/* 1800KB */
-		};
-
 #if defined(CONFIG_SEC_DEBUG)
-		sec-log-reserve-memory@0x4B000000 {
-			reg = <0 0x4B000000 0 0x200000>;
+		sec-log-reserve-memory@0x46C00000 {
+			reg = <0 0x46C00000 0 0x200000>;
 		};
 
-		sec-lastklog@0x4B200000 {
-			reg = <0 0x4B200000 0 0x200000>;
+		sec-lastklog@0x46E00000 {
+			reg = <0 0x46E00000 0 0x200000>;
 		};
 
-		sec-logger-reserve-memory@0x4B400000 {
-			reg = <0 0x4B400000 0 0x400000>;
+		sec-logger-reserve-memory@0x47000000 {
+			reg = <0 0x47000000 0 0x400000>;
 		};
 
-		sec-autocomment-reserve-memory@0x4B800000 {
-			reg = <0 0x4B800000 0 0x10000>;
+		sec-autocomment-reserve-memory@0x47400000 {
+			reg = <0 0x47400000 0 0x10000>;
 		};
 		
-		sec-extrainfo-reserve-memory@0x4B810000 {
-			reg = <0 0x4B810000 0 0x3F0000>;
+		sec-extrainfo-reserve-memory@0x47410000 {
+			reg = <0 0x47410000 0 0x1F0000>;
 		};
 #endif
-
 		reserve-memory-sspm_share {
 			compatible = "mediatek,reserve-memory-sspm_share";
 			no-map;
@@ -542,7 +536,7 @@ firmware_class.path=/vendor/firmware";
 		consys_mem: consys-reserve-memory {
 			compatible = "mediatek,consys-reserve-memory";
 			no-map;
-			size = <0 0x400000>;
+			size = <0 0x440000>;
 			alignment = <0 0x1000000>;
 			alloc-ranges = <0 0x40000000 0 0x80000000>;
 		};
@@ -570,22 +564,6 @@ firmware_class.path=/vendor/firmware";
 			alignment = <0 0x1000>;
 			alloc-ranges = <0 0xc0000000 0 0x10000000>;
 		};
-
-#ifdef CONFIG_MICROTRUST_TEE_SUPPORT
-		soter-shared-mem {
-			compatible = "microtrust,shared_mem";
-			no-map;
-#if defined(CONFIG_MTK_SEC_VIDEO_PATH_SUPPORT) || \
-	defined(CONFIG_MTK_CAM_SECURITY_SUPPORT)
-			size = <0 0x800000>;
-			alignment = <0 0x1000000>;
-#else
-			size = <0 0x200000>;
-			alignment = <0 0x200000>;
-#endif
-			alloc-ranges = <0 0x40000000 0 0x50000000>;
-		};
-#endif
 
 	};
 
@@ -688,6 +666,7 @@ firmware_class.path=/vendor/firmware";
 
 	infracfg_ao: infracfg_ao@10001000 {
 		compatible = "mediatek,common-infracfg_ao",
+			     "mediatek,infracfg_ao",
 			     "mediatek,mt6765-infracfg", "syscon";
 		reg = <0 0x10001000 0 0x1000>;
 		interrupts = <GIC_SPI 147 IRQ_TYPE_EDGE_RISING>;
@@ -850,11 +829,10 @@ firmware_class.path=/vendor/firmware";
 		compatible = "trustonic,mobicore";
 		interrupts = <GIC_SPI 271 IRQ_TYPE_EDGE_RISING>;
 	};
-
 	teegris {
 		compatible = "samsung,teegris";
 		interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_LOW>,
-			     <GIC_SPI 124 IRQ_TYPE_LEVEL_LOW>;
+					<GIC_SPI 124 IRQ_TYPE_LEVEL_LOW>;
 	};
 
 	tee_sanity {
@@ -995,6 +973,7 @@ firmware_class.path=/vendor/firmware";
 		interrupts = <GIC_SPI 192 IRQ_TYPE_LEVEL_HIGH>;
 		core_1 = "enable";
 		scp_sramSize = <0x00040000>;
+		scp_mpuRegionId = <27>;
 		scp_feature_tbl = <0 47>,   /* vow */
 				  <1 356>,  /* dsp */
 				  <2 62>,   /* sensor */
@@ -1084,19 +1063,30 @@ firmware_class.path=/vendor/firmware";
 		compatible = "mediatek,pmic-accdet";
 	};
 
-	goodix_fp: fingerprint {
-		compatible = "mediatek,goodix-fp";
+	/* HS03S code added for SR-AL5625-01-160 by wurui at 20210429 start */
+	silead_fp: silead_fp {
+		compatible = "sil,silead_fp-pins";
 	};
+    /* HS03S code added for SR-AL5625-01-160 by wurui at 20210429 end */
+	
+	    /* HS03S code added for SR-AL5625-01-157 by wurui at 20210506 start */
+	fp_egistec:fp_egistec {
+		compatible = "fp-egistec";
+    };
+    /* HS03S code added for SR-AL5625-01-157 by wurui at 20210506 end */
 
-	mt6357_gauge {
-		compatible = "mediatek,mt6357_gauge";
-		gauge_name = "gauge";
-		alias_name = "mt6357";
-	};
+	    /* HS03S code added for SR-AL5625-01-159 by shibinbin at 20210506 start */
+    fpsensor_finger: fpsensor_finger {
+        compatible = "mediatek,fpsensor";
+    };
+    /* HS03S code added for SR-AL5625-01-159 by shibinbin at 20210506 end */
 
-	gauge_timer {
-		compatible = "mediatek,gauge_timer_service";
-	};
+    /* HS03S code added for SR-AL5625-01-158 by shibinbin at 20210425 start */
+    cdfinger:cdfinger {
+        compatible = "mediatek,mtk_finger";
+    };
+    /* HS03S code added for SR-AL5625-01-158 by shibinbin at 20210425 end */
+
 
 	topmisc@10011000 {
 		compatible = "mediatek,topmisc";
@@ -1478,13 +1468,26 @@ firmware_class.path=/vendor/firmware";
 
 	md_auxadc:md_auxadc {
 		compatible = "mediatek,md_auxadc";
-		/*TabA7 Lite code for SR-AX3565-01-95 add batt_id and battery profile by wenyaqi at 20201201 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    /* modify code for O6 */
+	io-channels = <&auxadc 2>;
+		io-channel-names = "md-channel",
+			"md-battery";
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+    /* modify code for O6 */
+	io-channels = <&auxadc 2>;
+		io-channel-names = "md-channel",
+			"md-battery";
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
+    /* modify code for O8 */
 		/*
 		io-channels = <&auxadc 2>;
 		io-channel-names = "md-channel",
 			"md-battery";
-		*/
-		/*TabA7 Lite code for SR-AX3565-01-95 add batt_id and battery profile by wenyaqi at 20201201 end*/
+       */
+#endif
 	};
 
 	dramc_nao@1021d000 {
@@ -1739,7 +1742,6 @@ firmware_class.path=/vendor/firmware";
 			<&infracfg_ao CLK_IFR_GCE_26M>;
 		clock-names = "GCE", "GCE_TIMER";
 		mediatek,mailbox-gce = <&gce_mbox>;
-		secure_thread = <8 10>;
 		mboxes = <&gce_mbox 0 0 CMDQ_THR_PRIO_4>,
 			<&gce_mbox 1 0 CMDQ_THR_PRIO_4>,
 			<&gce_mbox 2 0 CMDQ_THR_PRIO_5>,
@@ -2371,25 +2373,34 @@ firmware_class.path=/vendor/firmware";
 		interconnects = <&auxadc 1>;
 	};
 
-	/*TabA7 Lite code for SR-AX3565-01-95 add batt_id and battery profile by wenyaqi at 20201201 start*/
-	/*
+#ifdef CONFIG_HQ_PROJECT_HS03S
 	tboard_thermistor3: thermal-sensor3 {
 		compatible = "mediatek,mtboard-thermistor3";
 		io-channels = <&auxadc 2>;
 		io-channel-names = "thermistor-ch2";
 		interconnects = <&auxadc 2>;
 	};
-	*/
-	/*TabA7 Lite code for SR-AX3565-01-95 add batt_id and battery profile by wenyaqi at 20201201 end*/
 
-	/*TabA7 Lite code for SR-AX3565-01-55 modify charger temp ntc by wenyaqi at 20201123 start*/
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+	tboard_thermistor3: thermal-sensor3 {
+		compatible = "mediatek,mtboard-thermistor3";
+		io-channels = <&auxadc 2>;
+		io-channel-names = "thermistor-ch2";
+		interconnects = <&auxadc 2>;
+	};
+
+#endif
+
+	/*HS03s code for SR-AL5625-01-259 by wenyaqi at 20210422 start*/
 	tboard_thermistor4: thermal-sensor4 {
 		compatible = "mediatek,mtboard-thermistor4";
 		io-channels = <&auxadc 3>;
 		io-channel-names = "thermistor-ch3";
 		interconnects = <&auxadc 3>;
 	};
-
+	/*HS03s code for SR-AL5625-01-259 by wenyaqi at 20210422 end*/
+#ifdef CONFIG_HQ_PROJECT_OT8
 	tboard_thermistor5: thermal-sensor5 {
 		compatible = "mediatek,mtboard-thermistor5";
 		io-channels = <&auxadc 4>;
@@ -2397,7 +2408,7 @@ firmware_class.path=/vendor/firmware";
 		interconnects = <&auxadc 4>;
 	};
 	/*TabA7 Lite code for SR-AX3565-01-55 modify charger temp ntc by wenyaqi at 20201123 end*/
-
+#endif
 	btif@1100c000 {
 		compatible = "mediatek,btif";
 			/*btif base*/
@@ -2460,7 +2471,7 @@ firmware_class.path=/vendor/firmware";
 		memory-region = <&consys_mem>;
 	};
 
-	wifi@18000000 {
+	wifi: wifi@18000000 {
 		compatible = "mediatek,wifi";
 		reg = <0 0x18000000 0 0x100000>;
 		interrupts = <GIC_SPI 268 IRQ_TYPE_LEVEL_LOW>;
@@ -2556,12 +2567,33 @@ firmware_class.path=/vendor/firmware";
 		clock-names = "usb0",
 			"usb0_clk_top_sel",
 			"usb0_clk_univpll3_d4";
+#ifdef CONFIG_HQ_PROJECT_OT8
 		charger = <&mt6370_chg>;
+#endif
+		pericfg= <&pericfg>;
+		interrupt-names = "mc";
+		phys = <&u2port0 PHY_TYPE_USB2>;
+		dr_mode = "otg";
+		usb-role-switch;
 	};
 
-	usb_sif@11210000 {
-		compatible = "mediatek,usb_sif";
-		reg = <0 0x11210000 0 0x10000>;
+	u2phy0: usb-phy@11210000 {
+		compatible = "mediatek,generic-tphy-v1";
+		reg = <0 0x11cc0000 0 0x0800>;
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		status = "okay";
+		u2port0: usb-phy@11210000 {
+			reg = <0 0x11cc0800 0 0x100>;
+			clocks = <&clk26m>;
+			clock-names = "ref";
+			#phy-cells = <1>;
+			nvmem-cells = <&u2_phy_data>;
+			nvmem-cell-names = "intr_cal";
+			nvmem-cell-masks = <0x1f>;
+			status = "okay";
+		};
 	};
 
 	msdc0:msdc@11230000 {
@@ -2732,6 +2764,9 @@ firmware_class.path=/vendor/firmware";
 		efuse_ly: ly@210 {
 			reg = <0x210 0x4>;
 		};
+		u2_phy_data: u2_phy_data@1ac {
+			reg = <0x1ac 0x4>;
+		};
 	};
 
 	mipi_tx0@11c80000 {
@@ -2886,7 +2921,7 @@ firmware_class.path=/vendor/firmware";
 			<&imgsys CLK_IMG_DIP>,
 			<&camsys CLK_CAM>,
 			<&camsys CLK_CAMTG>,
-			<&camsys CLK_CAM_SENINF>,
+			/*<&camsys CLK_CAM_SENINF>,*/
 			<&camsys CLK_CAMSV0>,
 			<&camsys CLK_CAMSV1>,
 			<&camsys CLK_CAMSV2>;
@@ -2896,7 +2931,7 @@ firmware_class.path=/vendor/firmware";
 			"ISP_CLK_IMG_DIP",
 			"ISP_CLK_CAM",
 			"ISP_CLK_CAMTG",
-			"ISP_CLK_CAM_SENINF",
+			/*"ISP_CLK_CAM_SENINF",*/
 			"ISP_CLK_CAMSV0",
 			"ISP_CLK_CAMSV1",
 			"ISP_CLK_CAMSV2";
@@ -3357,6 +3392,9 @@ firmware_class.path=/vendor/firmware";
 			"CLK_TOP_CAMTM_SEL_CG",
 			"CLK_TOP_CAMTM_208_CG",
 			"CLK_SCP_SYS_CAM";
+			/* HS03s code for P210619-01144 by chenjun at 2021/07/15 start */
+        	pmic = <&main_pmic>;
+			/* HS03s code for P210619-01144 by chenjun at 2021/07/15 end */
 	};
 
 	camsv1@1a050000 {
@@ -3385,7 +3423,6 @@ firmware_class.path=/vendor/firmware";
 
 	camera_af_hw_node: camera_af_hw_node {
 		compatible = "mediatek,camera_af_lens";
-		camaf_m1_pmic-supply = <&mt_pmic_vldo28_ldo_reg>;
 	};
 
 	flashlight_core: flashlight_core {
@@ -3394,22 +3431,38 @@ firmware_class.path=/vendor/firmware";
 
 	flashlights_mt6370: flashlights_mt6370 {
 		compatible = "mediatek,flashlights_mt6370";
-		decouple = <0>;
+		decouple = <1>;
 		channel@1 {
 			type = <0>;
 			ct = <0>;
 			part = <0>;
 		};
-		channel@2 {
-			type = <0>;
-			ct = <1>;
-			part = <0>;
-		};
 	};
-
+/*hs03s code add for flashlights_aw36518 by chengzhi at 2021.06.13 begin*/
+    flashlights_aw36518: flashlights_aw36518 {
+        compatible = "mediatek,flashlights_aw36518";
+        decouple = <1>;
+        channel@1 {
+            type = <0>;
+            ct = <0>;
+            part = <0>;
+        };
+    };
+/*hs03s code add for flashlights_aw36518 by chengzhi at 2021.06.13 end*/
 	gps {
 		compatible = "mediatek,gps";
 	};
+/* hs03s code for CAM-AL5625-01-324 by lisizhou at 2021/05/31 start */
+        flashlights_sgm3785_gpio: flashlights_sgm3785_gpio {
+        compatible = "mediatek,flashlights_sgm3785_gpio";
+        decouple = <1>;
+        channel@1 {
+            type = <0>;
+            ct = <0>;
+            part = <0>;
+        };
+    };
+/* hs03s code for CAM-AL5625-01-324 by lisizhou at 2021/05/31 end */
 
 	ccu@1a0b1000 {
 		compatible = "mediatek,ccu";
@@ -3445,14 +3498,13 @@ firmware_class.path=/vendor/firmware";
 		temp_t1_threshold = <0>;
 	};
 
-	/*TabA7 Lite code for P210405-03275 by wenyaqi at 20210406 start*/
 	pe: pe {
 		compatible = "mediatek,charger,pe";
 		gauge = <&mtk_gauge>;
 
-		/*TabA7 Lite code for OT8-2452 config PE parameter by wenyaqi at 20210201 start*/
-		//ta_12v_support;
-		/*TabA7 Lite code for OT8-2452 config PE parameter by wenyaqi at 20210201 end*/
+		/*HS03s for SR-AL5625-01-261 by wenyaqi at 20210425 start*/
+		// ta_12v_support;
+		/*HS03s for SR-AL5625-01-261 by wenyaqi at 20210425 end*/
 		ta_9v_support;
 
 		pe_ichg_level_threshold = <1000000>; /* uA */
@@ -3463,7 +3515,11 @@ firmware_class.path=/vendor/firmware";
 		ta_ac_12v_input_current = <3200000>;
 		ta_ac_9v_input_current = <3200000>;
 		ta_ac_7v_input_current = <3200000>;
+#if 0
+		pe_charger_current = <3000000>;
+#endif
 		pe_charger_current = <2700000>;
+
 	};
 
 	pe2: pe2 {
@@ -3482,6 +3538,9 @@ firmware_class.path=/vendor/firmware";
 
 		/* single charger */
 		sc_input_current = <3200000>;
+#if 0
+		sc_charger_current = <3000000>;
+#endif
 		sc_charger_current = <2700000>;
 
 		/* dual charger in series */
@@ -3499,15 +3558,29 @@ firmware_class.path=/vendor/firmware";
 
 		min_charger_voltage = <4600000>;
 		pd_vbus_low_bound = <5000000>;
+#if 0
+		pd_vbus_upper_bound = <5000000>;
+#endif
+/* Tab A7 lite_T for P221206-04681 by shixuanxuan at 20221224 start */
+#ifdef CONFIG_HQ_PROJECT_OT8
 		pd_vbus_upper_bound = <10000000>;
+#else
+		pd_vbus_upper_bound = <15000000>;
+#endif
+/* Tab A7 lite_T for P221206-04681 by shixuanxuan at 20221224 end */
+
 		vsys_watt = <5000000>;
-		ibus_err = <14>;
+		ibus_err = <30>;
 
 		pd_stop_battery_soc = <80>;
 
 		/* single charger */
 		sc_input_current = <3200000>;
+#if 0
+		sc_charger_current = <3000000>;
+#endif
 		sc_charger_current = <2700000>;
+
 
 		/* dual charger in series */
 		dcs_input_current = <3200000>;
@@ -3530,7 +3603,7 @@ firmware_class.path=/vendor/firmware";
 		high_temp_to_enter_pe40 = <39>;
 		low_temp_to_leave_pe40 = <10>;
 		low_temp_to_enter_pe40 = <16>;
-		ibus_err = <14>;
+		ibus_err = <30>;
 
 		/* PE 4.0 cable impedance (mohm) */
 		pe40_r_cable_1a_lower = <500>;
@@ -3539,7 +3612,11 @@ firmware_class.path=/vendor/firmware";
 
 		/* single charger */
 		sc_input_current = <3200000>;
+#if 0
+		sc_charger_current = <3000000>;
+#endif
 		sc_charger_current = <2700000>;
+
 
 		/* dual charger in series*/
 		dcs_input_current = <3200000>;
@@ -3549,7 +3626,6 @@ firmware_class.path=/vendor/firmware";
 		dual_polling_ieoc = <450000>;
 		slave_mivr_diff = <100000>;
 	};
-	/*TabA7 Lite code for P210405-03275 by wenyaqi at 20210406 end*/
 
 	charger: charger {
 		compatible = "mediatek,charger";
@@ -3610,7 +3686,17 @@ firmware_class.path=/vendor/firmware";
 		compatible = "mediatek,pd_adapter";
 		adapter_name = "pd_adapter";
 	};
-
+	extcon_usb: extcon_usb {
+		compatible = "mediatek,extcon-usb";
+		charger = <&mt6370_chg>;
+		vbus-supply = <&otg_vbus>;
+		vbus-voltage = <5000000>;
+		/*Tab A7 lite_T code for AL5626TDEV-170 by kangkai at 20220927 start*/
+		vbus-current = <1300000>;
+		/*Tab A7 lite_T code for AL5626TDEV-170 by kangkai at 20220927 end*/
+		dev-conn = <&usb>;
+		mediatek,bypss-typec-sink = <1>;
+	};
 	rt9465_slave_chr: rt9465_slave_chr {
 		compatible = "richtek,rt9465";
 		status = "disabled";
@@ -3642,8 +3728,9 @@ firmware_class.path=/vendor/firmware";
 		compatible = "mediatek,memory-ssmr-features";
 #if defined(CONFIG_MTK_SEC_VIDEO_PATH_SUPPORT) || \
 	defined(CONFIG_TRUSTONIC_TEE_SUPPORT) || \
-	defined(CONFIG_MICROTRUST_TEE_SUPPORT)
-		svp-size = <0 0x10000000>;
+	defined(CONFIG_MICROTRUST_TEE_SUPPORT) || \
+	defined(CONFIG_TEEGRIS_TEE_SUPPORT)
+		svp-region-based-size = <0 0x10000000>;
 #endif
 #ifdef CONFIG_MTK_CAM_SECURITY_SUPPORT
 		2d_fr-size = <0 0x8000000>;
@@ -3656,7 +3743,7 @@ firmware_class.path=/vendor/firmware";
 		wfd-size = <0 0x4000000>;
 #endif
 #ifdef CONFIG_MTK_PROT_MEM_SUPPORT
-		prot-sharedmem-size = <0 0x8000000>;
+		prot-region-based-size = <0 0x8000000>;
 #endif
 #ifdef CONFIG_MTK_HAPP_MEM_SUPPORT
 		ta-elf-size = <0 0x1000000>;
@@ -3887,6 +3974,12 @@ firmware_class.path=/vendor/firmware";
 		required-opps = <&dvfsrc_freq_opp0>,
 				<&dvfsrc_freq_opp1>;
 	};
+/*HS03s for SR-AL5628-01-162 by zhangjiangbin at 20220915 start*/
+	hwinfo:HardwareInfo {
+		compatible = "hardinfo,hardinfo_charger";
+		status = "okay";
+	};
+/*HS03s for SR-AL5628-01-162 by zhangjiangbin at 20220915 end*/
 
 	input_booster {
 		status = "okay";
@@ -3973,7 +4066,11 @@ firmware_class.path=/vendor/firmware";
 				compatible = "resource";
 				resource@1 {
 					resource,label = "CPU";
+#ifndef CONFIG_HS03S_SUPPORT
 					resource,value = <2301000 1351000>;
+#else
+					resource,value = <1484000 1085000>;
+#endif
 				};
 
 				resource@2 {
@@ -4001,7 +4098,7 @@ firmware_class.path=/vendor/firmware";
 				compatible = "resource";
 				resource@1 {
 					resource,label = "CPU";
-					resource,value = <2301000 1351000>;
+					resource,value = <1484000 1085000>;
 				};
 
 				resource@2 {
@@ -4162,10 +4259,23 @@ firmware_class.path=/vendor/firmware";
 #include "mediatek/cust_mt6765_msdc.dtsi"
 #include "mediatek/mt6357.dtsi"
 #include "mediatek/bat_setting/mt6765_battery_prop.dtsi"
+#ifdef CONFIG_HQ_PROJECT_OT8
 #include "mediatek/TabA7_Lite/AX3565-OT8-common.dtsi"
+#endif
 #include "mediatek/mt6370.dtsi"
+/*HS03s for SR-AL5625-01-515 by wangzikang at 20210607 start*/
+#ifdef CONFIG_HQ_PROJECT_HS03S
+#include "mediatek/hs03s/ccic.dtsi"
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS04
+#include "mediatek/hs04/ccic.dtsi"
+#endif
+#ifdef CONFIG_HQ_PROJECT_OT8
 #include "mediatek/mt6370_pd.dtsi"
+#endif
+/*HS03s for SR-AL5625-01-515 by wangzikang at 20210607 end*/
 #ifdef CONFIG_CHARGER_RT9471
 #include "mediatek/rt9471.dtsi"
 #endif
 #include "mediatek/trusty.dtsi"
+#include "modem-MT6765ap-pdata.dtsi"

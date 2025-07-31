@@ -81,6 +81,9 @@
 /*TabA7 Lite code for OT8-336 by gaozhengwei at 20210108 start*/
 #include <linux/input/sec_cmd.h>
 /*TabA7 Lite code for OT8-336 by gaozhengwei at 20210108 end*/
+/*Tab A7 lite_U code for SR-AX3565U-01-4  by zhengkunbang at 20230807 start*/
+#include "hal_kpd.h"
+/*Tab A7 lite_U code for SR-AX3565U-01-4  by zhengkunbang at 20230807 end*/
 
 #ifdef CONFIG_OF
 #include <linux/of_address.h>
@@ -140,8 +143,16 @@
 #define CHARGER_NOTIFIER_CALLBACK	DISABLE
 #define ENABLE_EDGE_PALM_PARA		DISABLE
 #define MULTI_REPORT_RATE		DISABLE
+#ifdef CONFIG_HQ_PROJECT_OT8
 /*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
 #define AXIS_PACKET			ENABLE
+/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS03S
+/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
+#define AXIS_PACKET			DISABLE
+/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
+#endif
 /*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
 #define ENGINEER_FLOW			ENABLE
 /*Proximity mode options*/
@@ -167,7 +178,17 @@
 /* Path */
 #define DEBUG_DATA_FILE_SIZE		(10*K)
 #define DEBUG_DATA_FILE_PATH		"/sdcard/ILITEK_log.csv"
-#define CSV_LCM_ON_PATH			"/sdcard/tpdata"
+
+#ifdef CONFIG_HQ_PROJECT_OT8
+    /* modify code for OT8 */
+	#define CSV_LCM_ON_PATH			"/sdcard/tpdata"
+#endif
+#ifdef CONFIG_HQ_PROJECT_HS03S
+    /* modify code for O6 */
+	/* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 start */
+	#define CSV_LCM_ON_PATH			"/data/tpdata"
+	/* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 end */
+#endif
 #define CSV_LCM_OFF_PATH		"/sdcard/ilitek_mp_lcm_off_log"
 #define POWER_STATUS_PATH		"/sys/class/power_supply/battery/status"
 #define DUMP_FLASH_PATH			"/sdcard/flash_dump"
@@ -347,6 +368,8 @@ enum TP_MODEL {
 	MODEL_DJ,
 	MODEL_TXD,
 	MODEL_TM,
+	MODEL_TXD_BOE,
+	MODEL_LS_PANDA,
 	MODEL_LS_INX
 };
 

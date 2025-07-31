@@ -60,3 +60,10 @@ config SEC_DEBUG_INIT_EXIT_PANIC
 	  This option enables early panic when it attempt to kill init tasks.
 	  It may happen before init task stack is destroyed for debugging.
 
+config SEC_DEBUG_SOFTDOG_PWDT
+	bool "Enable Soft Watchdog for Platform"
+	default y
+	depends on WATCHDOG
+	select SOFT_WATCHDOG
+	help
+	  This option enables soft watchdog device and soft_panic.

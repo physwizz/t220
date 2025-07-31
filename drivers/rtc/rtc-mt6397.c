@@ -155,6 +155,8 @@ static bool bootalarm_irq=false;
 #define RTC_PWRON_DOM_MASK     0xf800
 #define RTC_PWRON_DOM_SHIFT     11
 
+#define RTC_POFF_ALM_SET	_IOW('p', 0x15, struct rtc_time) /* Set alarm time  */
+
 enum mtk_rtc_spare_enum {
 	SPARE_AL_HOU,
 	SPARE_AL_MTH,
@@ -634,6 +636,10 @@ static void mtk_rtc_reset_bbpu_alarm_status(struct mt6397_rtc *rtc)
 	u32 bbpu;
 	int ret;
 
+	if (rtc->dev_comp->eosc_cali_version == EOSC_CALI_MT6357_SERIES ||
+		rtc->dev_comp->eosc_cali_version == EOSC_CALI_MT6358_SERIES)
+		return;
+
 	bbpu = RTC_BBPU_KEY | RTC_BBPU_PWREN | RTC_BBPU_RESET_AL;
 	ret = regmap_write(rtc->regmap, rtc->addr_base + RTC_BBPU, bbpu);
 	if (ret < 0)
@@ -964,11 +970,16 @@ static int mtk_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	time64_t time;
 	struct mt6397_rtc *rtc = dev_get_drvdata(dev);
 	int days, sec, ret;
+	unsigned long long timeout = sched_clock() + 500000000;
 
 	do {
 		ret = __mtk_rtc_read_time(rtc, tm, &sec);
 		if (ret < 0)
 			goto exit;
+		if (sched_clock() > timeout) {
+			pr_notice("%s, time out\n", __func__);
+			break;
+		}
 	} while (sec < tm->tm_sec);
 
 	/* HW register use 7 bits to store year data, minus
@@ -1091,17 +1102,25 @@ static int rtc_ops_set_bootalarm(struct device *dev, struct rtc_wkalrm *alm)
 	struct mt6397_rtc *rtc = dev_get_drvdata(dev);
 	int ret;
 	u32 irqsta;
+/*	ktime_t target;
+
+	if (tm->tm_year > 195) {
+		dev_err(rtc->dev, "%s: invalid year %04d > 2095\n",
+				__func__, tm->tm_year + RTC_BASE_YEAR);
+		return -EINVAL;
+	}
+*/
 
 	tm->tm_year -= RTC_MIN_YEAR_OFFSET;
 	tm->tm_mon++;
-
+	
 	dev_notice(rtc->dev,
 		"set pwron time = %04d/%02d/%02d %02d:%02d:%02d (%d)\n",
 		tm->tm_year + RTC_MIN_YEAR, tm->tm_mon, tm->tm_mday,
 		tm->tm_hour, tm->tm_min, tm->tm_sec, alm->enabled);
-
+		
 	mutex_lock(&rtc->lock);
-
+	
 	if (alm->enabled == 1) {	/* enable power-on alarm */
 		mtk_rtc_save_pwron_time(rtc, true, tm, true);
 	} else if (alm->enabled == 0) {	/* disable power-on alarm */
@@ -1119,11 +1138,11 @@ static int rtc_ops_set_bootalarm(struct device *dev, struct rtc_wkalrm *alm)
 	if (ret < 0)
 		goto exit;
 	mtk_rtc_write_trigger(rtc);
-
+	
 	ret = regmap_read(rtc->regmap, rtc->addr_base + RTC_IRQ_STA, &irqsta);
 	if (ret < 0)
 		goto exit;
-
+	
 	if (alm->enabled) {
 		ret = mtk_rtc_restore_alarm(rtc, tm);
 		if (ret < 0)
@@ -1135,7 +1154,7 @@ static int rtc_ops_set_bootalarm(struct device *dev, struct rtc_wkalrm *alm)
 		if (ret < 0)
 			goto exit;
 	}
-
+	
 	/* All alarm time register write to hardware after calling
 	 * mtk_rtc_write_trigger. This can avoid race condition if alarm
 	 * occur happen during writing alarm time register.
@@ -1145,21 +1164,21 @@ exit:
 	mutex_unlock(&rtc->lock);
 	return ret;
 }
-/*Actually ,when power off charging , this funtion should no working,
- *because mtk_rtc_irq_handler_thread will restart device when power off alarm occur.
- */
+
 static int rtc_ops_get_bootalarm(struct device *dev, struct rtc_wkalrm *alm)
 {
 	
 	struct rtc_time nowtm;
-	int lpcharge = 0;
+	int ret = 0,lpcharge = 0;
 	bool pwron_alarm = false;
 	unsigned long secs_alrm, secs_rtc;
 	struct mt6397_rtc *rtc = dev_get_drvdata(dev);
 	
 	pwron_alarm = mtk_rtc_is_pwron_alarm(rtc, &nowtm, &alm->time);
 	
-
+	
+	printk(" [bootalarm] :  %d\n", alm->enabled);
+	
 	if (bootmode == KERNEL_POWER_OFF_CHARGING_BOOT ||
 		bootmode == LOW_POWER_OFF_CHARGING_BOOT) lpcharge = 1;
 				
@@ -1167,25 +1186,22 @@ static int rtc_ops_get_bootalarm(struct device *dev, struct rtc_wkalrm *alm)
 	{
 		rtc_tm_to_time(&nowtm, &secs_rtc);
 		rtc_tm_to_time(&alm->time, &secs_alrm);
-		bootalarm_irq=0;
 		//LPM scan priod is 30s,beofre 3min30s,restart device
 		if ( secs_alrm-31*lpcharge <= secs_rtc && secs_rtc <= secs_alrm+60*3)
 		{
 			alm->enabled = 1;
 			//mtk_rtc_update_pwron_alarm_flag(rtc);
-			printk("%s LPM mode will reboot \n",__func__);
+			bootalarm_irq=0;
+			printk("%s it will be reboot \n",__func__);
 		}
-			printk("%s it is error \n",__func__);//should never run here
 	}
 	else alm->enabled=0;
-		
-	if (pwron_alarm) {
-		dev_notice(rtc->dev,
-			"[bootalarm] : [ALRM] %d-%d-%d %d:%d:%d[%d] \n",
+	
+	if ( !ret ) {
+		printk("[bootalarm] : [PWR on ALRM] %d-%d-%d %d:%d:%d \n",
 			alm->time.tm_year, alm->time.tm_mon, alm->time.tm_mday,
-			alm->time.tm_hour, alm->time.tm_min, alm->time.tm_sec,alm->enabled);
-		dev_notice(rtc->dev,
-			"[bootalarm] : [RTC] %d-%d-%d %d:%d:%d \n",
+			alm->time.tm_hour, alm->time.tm_min, alm->time.tm_sec);
+		printk("[bootlarm] : [RTC ] %d-%d-%d %d:%d:%d \n",
 			nowtm.tm_year, nowtm.tm_mon, nowtm.tm_mday,
 			nowtm.tm_hour, nowtm.tm_min, nowtm.tm_sec);
 	}
@@ -1200,7 +1216,7 @@ static int mtk_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alm)
 	int ret;
 	u32 irqsta;
 	ktime_t target;
-	
+
 #ifdef CONFIG_RTC_AUTO_PWRON
 	struct rtc_time nowtm,pwrontm;
 	unsigned long now_time, pwron_time, time;
@@ -1225,7 +1241,7 @@ static int mtk_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alm)
 
 	tm->tm_year -= RTC_MIN_YEAR_OFFSET;
 	tm->tm_mon++;
-	
+
 #ifdef CONFIG_RTC_AUTO_PWRON
 		mutex_lock(&rtc->lock);
 		pwron_alm = mtk_rtc_is_pwron_alarm(rtc, &nowtm, &pwrontm);
@@ -1240,11 +1256,11 @@ static int mtk_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alm)
 				}
 			}
 			time=mktime(tm->tm_year, tm->tm_mon, tm->tm_mday, tm->tm_hour, tm->tm_min,tm->tm_sec);
-
+			
 			if(now_time < pwron_time && pwron_time < time )
 			{
 				memcpy(tm, &pwrontm, sizeof(struct rtc_time));
-
+				
 			  	dev_notice(rtc->dev,"override by pwron alarm = %04d/%02d/%02d %02d:%02d:%02d (%d)\n",
 			  	tm->tm_year + RTC_MIN_YEAR, tm->tm_mon, tm->tm_mday,
 			  	tm->tm_hour, tm->tm_min, tm->tm_sec, alm->enabled);
@@ -1316,7 +1332,54 @@ exit:
 	return ret;
 }
 
+static int mtk_set_power_on(struct device *dev, struct rtc_wkalrm *alm)
+{
+	int err = 0;
+	struct rtc_time tm;
+	time64_t now, scheduled;
+
+	err = rtc_valid_tm(&alm->time);
+	if (err != 0)
+		return err;
+	scheduled = rtc_tm_to_time64(&alm->time);
+
+	err = mtk_rtc_read_time(dev, &tm);
+	if (err != 0)
+		return err;
+	now = rtc_tm_to_time64(&tm);
+
+	if (scheduled <= now)
+		alm->enabled = 4;
+	else
+		alm->enabled = 3;
+
+	mtk_rtc_set_alarm(dev, alm);
+
+	return err;
+}
+
+static int mtk_rtc_ioctl(struct device *dev, unsigned int cmd, unsigned long arg)
+{
+	void __user *uarg = (void __user *) arg;
+	int err = 0;
+	struct rtc_wkalrm alm;
+
+	switch (cmd) {
+	case RTC_POFF_ALM_SET:
+		if (copy_from_user(&alm.time, uarg, sizeof(alm.time)))
+			return -EFAULT;
+		err = mtk_set_power_on(dev, &alm);
+		break;
+	default:
+		err = -EINVAL;
+		break;
+	}
+
+	return err;
+}
+
 static const struct rtc_class_ops mtk_rtc_ops = {
+	.ioctl      = mtk_rtc_ioctl,
 	.read_time  = mtk_rtc_read_time,
 	.set_time   = mtk_rtc_set_time,
 	.read_alarm = mtk_rtc_read_alarm,
@@ -1717,6 +1780,39 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 	if (IS_ERR(rtc->rtc_dev))
 		return PTR_ERR(rtc->rtc_dev);
 
+	/* KPOC alarm related setting */
+	mt6397_rtc_suspend_lock =
+		wakeup_source_register(NULL, "mt6397-rtc suspend wakelock");
+
+	boot_node = of_parse_phandle(pdev->dev.of_node, "bootmode", 0);
+	if (!boot_node) {
+		dev_err(&pdev->dev,
+			"%s: failed to get boot mode phandle\n", __func__);
+	} else {
+		tag = (struct tag_bootmode *)of_get_property(
+			boot_node, "atag,boot", NULL);
+		if (!tag)
+			dev_err(&pdev->dev,
+				"%s: failed to get atag,boot\n", __func__);
+		else {
+			dev_notice(&pdev->dev,
+				"%s, bootmode:%d\n", __func__, tag->bootmode);
+			bootmode = tag->bootmode;
+		}
+	}
+
+#ifdef CONFIG_PM
+	rtc->pm_nb.notifier_call = rtc_pm_event;
+	rtc->pm_nb.priority = 0;
+	if (register_pm_notifier(&rtc->pm_nb))
+		pr_notice("rtc pm failed\n");
+	else
+		rtc_pm_notifier_registered = true;
+#endif /* CONFIG_PM */
+
+	INIT_WORK(&rtc->work, mtk_rtc_work_queue);
+	/* KPOC alarm related setting */
+
 	ret = request_threaded_irq(rtc->irq, NULL,
 				   mtk_rtc_irq_handler_thread,
 				   IRQF_ONESHOT | IRQF_TRIGGER_HIGH,
@@ -1728,9 +1824,6 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 	}
 
 	device_init_wakeup(&pdev->dev, 1);
-
-	mt6397_rtc_suspend_lock =
-		wakeup_source_register(NULL, "mt6397-rtc suspend wakelock");
 
 	rtc->rtc_dev->ops = &mtk_rtc_ops;
 
@@ -1754,23 +1847,6 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 
 	mtk_rtc_set_lp_irq(rtc);
 
-	boot_node = of_parse_phandle(pdev->dev.of_node, "bootmode", 0);
-	if (!boot_node) {
-		dev_err(&pdev->dev,
-			"%s: failed to get boot mode phandle\n", __func__);
-	} else {
-		tag = (struct tag_bootmode *)of_get_property(
-			boot_node, "atag,boot", NULL);
-		if (!tag)
-			dev_err(&pdev->dev,
-				"%s: failed to get atag,boot\n", __func__);
-		else {
-			dev_notice(&pdev->dev,
-				"%s, bootmode:%d\n", __func__, tag->bootmode);
-			bootmode = tag->bootmode;
-		}
-	}
-
 	mtk_rtc_dir = debugfs_create_dir("mtk_rtc", NULL);
 	if (!mtk_rtc_dir) {
 		dev_err(&pdev->dev,
@@ -1784,17 +1860,6 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 				"create /sys/kernel/debug/mtk_rtc/mtk_rtc failed\n");
 		}
 	}
-
-#ifdef CONFIG_PM
-	rtc->pm_nb.notifier_call = rtc_pm_event;
-	rtc->pm_nb.priority = 0;
-	if (register_pm_notifier(&rtc->pm_nb))
-		pr_notice("rtc pm failed\n");
-	else
-		rtc_pm_notifier_registered = true;
-#endif /* CONFIG_PM */
-
-	INIT_WORK(&rtc->work, mtk_rtc_work_queue);
 
 	return 0;
 

@@ -17,13 +17,16 @@
 #include "himax_common.h"
 #include "himax_ic_core.h"
 #include <linux/rtc.h>
+
 /*#define HX_GAP_TEST*/
 /*#define HX_INSP_LP_TEST*/
 /*#define HX_ACT_IDLE_TEST*/
 
 /*#define HX_INSPT_DBG*/
 
-#define HX_RSLT_OUT_PATH "/sdcard/tpdata/"
+/* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 start */
+#define HX_RSLT_OUT_PATH "/data/tpdata/"
+/* HS03S code for DEVAL5625-2101 by gaozhengwei at 2021/07/14 end */
 #define HX_RSLT_OUT_FILE "hx_test_result"
 #define PI(x...) pr_cont(x)
 #define HX_SZ_ICID 60

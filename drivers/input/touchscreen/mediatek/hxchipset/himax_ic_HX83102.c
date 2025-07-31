@@ -30,6 +30,7 @@ static void hx83102_chip_init(void)
 	(*kp_CID_VER_MIN_FLASH_ADDR) = 49155;  /*0x00C003*/
 	(*kp_CFG_TABLE_FLASH_ADDR) = 0x10000;
 	/*PANEL_VERSION_ADDR = 49156;*/  /*0x00C004*/
+	(*kp_CFG_TABLE_FLASH_ADDR_T) = (*kp_CFG_TABLE_FLASH_ADDR);
 }
 
 static void hx83102e_chip_init(void)
@@ -46,6 +47,7 @@ static void hx83102e_chip_init(void)
 	(*kp_CID_VER_MIN_FLASH_ADDR) = 59395;  /*0x00E803*/
 	(*kp_CFG_TABLE_FLASH_ADDR) = 0x10000;
 	/*PANEL_VERSION_ADDR = 59396;*/  /*0x00E804*/
+	(*kp_CFG_TABLE_FLASH_ADDR_T) = (*kp_CFG_TABLE_FLASH_ADDR);
 }
 
 void hx83102_burst_enable(uint8_t auto_add_4_byte)
@@ -186,6 +188,7 @@ static bool hx83102_sense_off(bool check_en)
 		tmp_addr[1] = 0x00;
 		tmp_addr[0] = 0xA8;
 		hx83102_register_read(tmp_addr, DATA_LEN_4, tmp_data);
+
 		if (tmp_data[0] != 0x05) {
 			I("%s: Do not need wait FW, Status = 0x%02X!\n",
 				__func__, tmp_data[0]);
@@ -760,40 +763,6 @@ static bool hx83102d_sense_off(bool check_en)
 	return false;
 }
 
-static void hx83102e_reload_to_active(void)
-{
-	uint8_t addr[DATA_LEN_4] = {0};
-	uint8_t data[DATA_LEN_4] = {0};
-	uint8_t retry_cnt = 0;
-
-	addr[3] = 0x90;
-	addr[2] = 0x00;
-	addr[1] = 0x00;
-	addr[0] = 0x48;
-
-	do {
-		data[3] = 0x00;
-		data[2] = 0x00;
-		data[1] = 0x00;
-		data[0] = 0xEC;
-		kp_g_core_fp->fp_register_write(addr, DATA_LEN_4, data, 0);
-		usleep_range(1000, 1100);
-		kp_g_core_fp->fp_register_read(addr, DATA_LEN_4, data, 0);
-		I("%s: data[1]=%d, data[0]=%d, retry_cnt=%d\n", __func__,
-				data[1], data[0], retry_cnt);
-		retry_cnt++;
-	} while ((data[1] != 0x01
-		|| data[0] != 0xEC)
-		&& retry_cnt < HIMAX_REG_RETRY_TIMES);
-}
-
-static void hx83102e_resume_ic_action(void)
-{
-#if !defined(HX_RESUME_HW_RESET)
-	hx83102e_reload_to_active();
-#endif
-}
-
 static void hx83102e_sense_on(uint8_t FlashMode)
 {
 	uint8_t tmp_data[DATA_LEN_4] = {0};
@@ -807,14 +776,6 @@ static void hx83102e_sense_on(uint8_t FlashMode)
 		sizeof((*kp_pfw_op)->data_clear),
 		(*kp_pfw_op)->data_clear,
 		0);
-	/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-	usleep_range(100, 110);
-	kp_g_core_fp->fp_register_write(
-		(*kp_pfw_op)->addr_hand_blade_addr,
-		sizeof((*kp_pfw_op)->data_hand_blade_en),
-		(*kp_pfw_op)->data_hand_blade_en,
-		0);
-	/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
 	/*msleep(20);*/
 	usleep_range(10000, 11000);
 	if (!FlashMode) {
@@ -823,8 +784,6 @@ static void hx83102e_sense_on(uint8_t FlashMode)
 #else
 		kp_g_core_fp->fp_system_reset();
 #endif
-
-		hx83102e_reload_to_active();
 	} else {
 
 		ret = kp_himax_bus_write(
@@ -844,8 +803,6 @@ static void hx83102e_sense_on(uint8_t FlashMode)
 			__func__,
 			(*kp_pic_op)->adr_i2c_psw_ub[0]);
 		}
-
-		hx83102e_reload_to_active();
 	}
 }
 
@@ -1281,7 +1238,7 @@ static int hx83102d_0f_overlay(int ovl_type, int mode)
 	uint8_t send_data[4] = {0};
 	uint8_t recv_data[4] = {0};
 
-	ret = request_firmware(&fwp, BOOT_UPGRADE_FWNAME,
+	ret = request_firmware(&fwp, g_fw_boot_upgrade_name,
 		(*kp_private_ts)->dev);
 	if (ret < 0) {
 		E("%s: request firmware FAIL!!!\n", __func__);
@@ -1307,6 +1264,12 @@ static int hx83102d_0f_overlay(int ovl_type, int mode)
 		E("%s: error overlay type %d\n", __func__, ovl_type);
 		return HX_INIT_FAIL;
 	}
+/*hs03s  code for DEVAL5626-13 by wangdeyan at 20210610 start*/
+	if (!kp_ovl_idx) {
+		E("%s: kp_ovl_idx is NULL\n", __func__);
+		return FW_NOT_READY;
+	}
+/*hs03s  code for DEVAL5626-13 by wangdeyan at 20210610 end*/
 	ovl_idx_t = *((*kp_ovl_idx) + ovl_type - 1);
 	memcpy(buf, &fwp->data[ovl_idx_t * 0x10 + HX64K], 16);
 	memcpy(sram_addr, buf, 4);
@@ -1414,7 +1377,7 @@ static int hx83102d_0f_overlay(int ovl_type, int mode)
 
 	/* rescue mechanism */
 	if (count >= 10) {
-		kp_g_core_fp->fp_0f_op_file_dirly(BOOT_UPGRADE_FWNAME);
+		kp_g_core_fp->fp_0f_op_file_dirly(g_fw_boot_upgrade_name);
 		kp_g_core_fp->fp_reload_disable(0);
 		kp_g_core_fp->fp_sense_on(0x00);
 		kp_himax_int_enable(1);
@@ -1571,14 +1534,6 @@ static void himax_hx83102e_reg_re_init(void)
 	kp_himax_parse_assign_cmd(hx83102e_ic_adr_tcon_rst,
 			(*kp_pic_op)->addr_tcon_on_rst,
 			sizeof((*kp_pic_op)->addr_tcon_on_rst));
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-	kp_himax_parse_assign_cmd(fw_addr_hand_blade,
-			(*kp_pfw_op)->addr_hand_blade_addr,
-			sizeof((*kp_pfw_op)->addr_hand_blade_addr));
-	kp_himax_parse_assign_cmd(fw_addr_hand_blade_on_off,
-			(*kp_pfw_op)->data_hand_blade_en,
-			sizeof((*kp_pfw_op)->data_hand_blade_en));
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
 }
 
 static void himax_hx83102e_func_re_init(void)
@@ -1589,9 +1544,6 @@ static void himax_hx83102e_func_re_init(void)
 	kp_g_core_fp->fp_sense_on = hx83102e_sense_on;
 	kp_g_core_fp->fp_sense_off = hx83102e_sense_off;
 	kp_g_core_fp->fp_read_event_stack = hx83102e_read_event_stack;
-
-	kp_g_core_fp->fp_resume_ic_action = hx83102e_resume_ic_action;
-	kp_g_core_fp->fp_0f_reload_to_active = hx83102e_reload_to_active;
 }
 
 
@@ -1603,8 +1555,6 @@ static bool hx83102_chip_detect(void)
 	int ret = 0;
 	int i = 0;
 
-	if (himax_ic_setup_external_symbols())
-		return false;
 
 #if defined(HX_RST_PIN_FUNC)
 	hx83102_pin_reset();
@@ -1648,6 +1598,8 @@ static bool hx83102_chip_detect(void)
 			if (tmp_data[1] == 0x2a) {
 				strlcpy((*kp_private_ts)->chip_name,
 					HX_83102A_SERIES_PWON, 30);
+				strlcpy(private_ts->chip_name,
+					HX_83102A_SERIES_PWON, 30);
 				(*kp_ic_data)->ic_adc_num =
 					hx83102a_data_adc_num;
 				I("%s:detect IC HX83102A successfully\n",
@@ -1661,11 +1613,16 @@ static bool hx83102_chip_detect(void)
 					__func__);
 			} else if (tmp_data[1] == 0x2d) {
 				strlcpy((*kp_private_ts)->chip_name,
-					HX_83102D_SERIES_PWON, 30);
+					HX_83102D_JZ_INX, 30);
 				(*kp_ic_data)->ic_adc_num =
 					hx83102d_data_adc_num;
 				I("%s:detect IC HX83102D successfully\n",
 					__func__);
+				g_fw_boot_upgrade_name =  "Himax_firmware_hx83102.bin";
+				g_fw_mp_upgrade_name = "Himax_mpfw_hx83102.bin";
+				/*hs03s  code for DEVAL5625-127 by wangdeyan at 20210519 start*/
+				mtp_chip_name = (*kp_private_ts)->chip_name;
+				/*hs03s  code for DEVAL5625-127 by wangdeyan at 20210519 end*/
 			} else {
 				strlcpy((*kp_private_ts)->chip_name,
 					HX_83102E_SERIES_PWON, 30);
@@ -1705,15 +1662,17 @@ static bool hx83102_chip_detect(void)
 		E("3. Power On Sequence\n");
 
 	}
-	mtp_chip_name = (*kp_private_ts)->chip_name;
+
 	return ret_data;
 }
 
-DECLARE(HX_MOD_KSYM_HX83102);
 
 static int himax_hx83102_probe(void)
 {
 	I("%s:Enter\n", __func__);
+#ifdef HX_USE_KSYM
+	hx_init_chip_entry();
+#endif
 	himax_add_chip_dt(hx83102_chip_detect);
 
 	return 0;

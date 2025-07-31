@@ -54,7 +54,6 @@ unsigned int GPIO_LCD_PWR_ENN;
 struct pinctrl *lcd_pinctrl1;
 struct pinctrl_state *lcd_disp_pwm;
 struct pinctrl_state *lcd_disp_pwm_gpio;
-
 enum tp_module_used tp_is_used = UNKNOWN_TP;
 
 void lcm_set_gpio_output(unsigned int GPIO, unsigned int output)

@@ -14,10 +14,10 @@
 #include <linux/major.h>
 #include <linux/module.h>
 
-/*TabA7 Lite code for OT8-1003 by Hujincan at 20210111 start*/
-char *sar_name = "abov";
+/* hs03s code for SR-AL5625-01-168 by xiongxiaoliang at 2021/06/09 start */
+char *sar_name = NULL;
 module_param(sar_name, charp, 0644);
-/*TabA7 Lite code for OT8-1003 by Hujincan at 20210111 end*/
+/* hs03s code for SR-AL5625-01-168 by xiongxiaoliang at 2021/06/09 end */
 
 static int sensor_attr_major = -1;
 static struct class *sensor_attr_class;

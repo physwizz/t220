@@ -24,7 +24,7 @@
 #include <linux/mmc/mmc.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/card.h>
-
+#include "mtk-msdc.h"
 #include "cqhci.h"
 #include "cqhci-crypto.h"
 
@@ -104,6 +104,26 @@ static void cqhci_set_irqs(struct cqhci_host *cq_host, u32 set)
 
 #define DRV_NAME "cqhci"
 
+static void cqhci_dump_desc_by_tag(struct cqhci_host *cq_host, u8 tag)
+{
+	u8 *task_desc = NULL;
+	u8 *tran_desc = NULL;
+	int i;
+
+	pr_info("%s cqhci dump task%d desc:", __func__, tag);
+	if (tag < 31) {
+		tran_desc = get_trans_desc(cq_host, tag);
+		task_desc = get_desc(cq_host, tag);
+		for (i = 0; i < cq_host->task_desc_len; i++)
+			pr_info("task desc[%d] %02x\n", i, task_desc[i]);
+		for (i = 0; i < cq_host->trans_desc_len; i++)
+			pr_info("trans_desc[%d] %02x\n", i, tran_desc[i]);
+	} else {
+		return;
+	}
+
+}
+
 #define CQHCI_DUMP(f, x...) \
 	pr_err("%s: " DRV_NAME ": " f, mmc_hostname(mmc), ## x)
 
@@ -146,11 +166,18 @@ static void cqhci_dumpregs(struct cqhci_host *cq_host)
 	CQHCI_DUMP("Resp idx:  0x%08x | Resp arg: 0x%08x\n",
 		   cqhci_readl(cq_host, CQHCI_CRI),
 		   cqhci_readl(cq_host, CQHCI_CRA));
+	CQHCI_DUMP("CRNQP:     0x%08x | CRNQDUN:  0x%08x\n",
+		   cqhci_readl(cq_host, CQHCI_CRNQP),
+		   cqhci_readl(cq_host, CQHCI_CRNQDUN));
+	CQHCI_DUMP("CRNQIS:    0x%08x | CRNQIE:   0x%08x\n",
+		   cqhci_readl(cq_host, CQHCI_CRNQIS),
+		   cqhci_readl(cq_host, CQHCI_CRNQIE));
 
 	if (cq_host->ops->dumpregs)
 		cq_host->ops->dumpregs(mmc);
 	else
 		CQHCI_DUMP(": ===========================================\n");
+
 }
 
 /**
@@ -277,6 +304,7 @@ static void __cqhci_enable(struct cqhci_host *cq_host)
 	cqhci_writel(cq_host, upper_32_bits(cq_host->desc_dma_base),
 		     CQHCI_TDLBAU);
 
+	cqhci_writel(cq_host, 0x40, CQHCI_SSC1);
 	cqhci_writel(cq_host, cq_host->rca, CQHCI_SSC2);
 
 	cqhci_set_irqs(cq_host, 0);
@@ -284,6 +312,9 @@ static void __cqhci_enable(struct cqhci_host *cq_host)
 	cqcfg |= CQHCI_ENABLE;
 
 	cqhci_writel(cq_host, cqcfg, CQHCI_CFG);
+
+	if (cqhci_readl(cq_host, CQHCI_CTL) & CQHCI_HALT)
+		cqhci_writel(cq_host, 0, CQHCI_CTL);
 
 	mmc->cqe_on = true;
 
@@ -340,8 +371,10 @@ static int cqhci_enable(struct mmc_host *mmc, struct mmc_card *card)
 	cq_host->rca = card->rca;
 
 	err = cqhci_host_alloc_tdl(cq_host);
-	if (err)
+	if (err) {
+		mmc_card_error_logging(mmc->card, NULL, CQ_EN_DIS_ERR);
 		return err;
+	}
 
 	__cqhci_enable(cq_host);
 
@@ -377,8 +410,10 @@ static void cqhci_off(struct mmc_host *mmc)
 
 	err = readx_poll_timeout(cqhci_read_ctl, cq_host, reg,
 				 reg & CQHCI_HALT, 0, CQHCI_OFF_TIMEOUT);
-	if (err < 0)
+	if (err < 0) {
 		pr_err("%s: cqhci: CQE stuck on\n", mmc_hostname(mmc));
+		mmc_card_error_logging(mmc->card, NULL, HALT_UNHALT_ERR);
+	}
 	else
 		pr_debug("%s: cqhci: CQE off\n", mmc_hostname(mmc));
 
@@ -608,6 +643,7 @@ static int cqhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		if (cqhci_readl(cq_host, CQHCI_CTL) && CQHCI_HALT) {
 			pr_err("%s: cqhci: CQE failed to exit halt state\n",
 			       mmc_hostname(mmc));
+			mmc_card_error_logging(mmc->card, NULL, HALT_UNHALT_ERR);
 		}
 		if (cq_host->ops->enable)
 			cq_host->ops->enable(mmc);
@@ -878,6 +914,7 @@ static bool cqhci_timeout(struct mmc_host *mmc, struct mmc_request *mrq,
 	if (timed_out) {
 		pr_err("%s: cqhci: timeout for tag %d\n",
 		       mmc_hostname(mmc), tag);
+		cqhci_dump_desc_by_tag(cq_host, tag);
 		cqhci_dumpregs(cq_host);
 	}
 
@@ -942,8 +979,10 @@ static bool cqhci_halt(struct mmc_host *mmc, unsigned int timeout)
 
 	ret = cqhci_halted(cq_host);
 
-	if (!ret)
+	if (!ret) {
 		pr_debug("%s: cqhci: Failed to halt\n", mmc_hostname(mmc));
+		mmc_card_error_logging(mmc->card, NULL, HALT_UNHALT_ERR);
+	}
 
 	return ret;
 }
@@ -968,7 +1007,6 @@ static void cqhci_recovery_start(struct mmc_host *mmc)
 
 	if (cq_host->ops->disable)
 		cq_host->ops->disable(mmc, true);
-
 	mmc->cqe_on = false;
 }
 
@@ -1035,6 +1073,7 @@ static void cqhci_recovery_finish(struct mmc_host *mmc)
 	unsigned long flags;
 	u32 cqcfg;
 	bool ok;
+	u32 reg;
 
 	pr_debug("%s: cqhci: %s\n", mmc_hostname(mmc), __func__);
 
@@ -1068,6 +1107,16 @@ static void cqhci_recovery_finish(struct mmc_host *mmc)
 	cqhci_recover_mrqs(cq_host);
 
 	WARN_ON(cq_host->qcnt);
+
+	/*
+	 * MTK PATCH: need disable cqhci for legacy cmds coz legacy cmds using
+	 * GPD DMA and it can only work when CQHCI disable.
+	 */
+	if (cq_host->quirks & CQHCI_QUIRK_DIS_BEFORE_NON_CQ_CMD) {
+		reg = cqhci_readl(cq_host, CQHCI_CFG);
+		reg &= ~CQHCI_ENABLE;
+		cqhci_writel(cq_host, reg, CQHCI_CFG);
+	}
 
 	spin_lock_irqsave(&cq_host->lock, flags);
 	cq_host->qcnt = 0;

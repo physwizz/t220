@@ -87,6 +87,22 @@ static unsigned char CTPM_FW_TM[] = {
 	0xFF,
 };
 
+#define TXD_BOE_INI_NAME_PATH		"/sdcard/mp_txd_boe.ini"
+#define TXD_BOE_FW_FILP_PATH		"/sdcard/ILITEK_FW_CSOT"
+#define TXD_BOE_INI_REQUEST_PATH		"mp_txd_boe.ini"
+#define TXD_BOE_FW_REQUEST_PATH		"ilitek_fw_txd_boe.bin"
+static unsigned char CTPM_FW_TXD_BOE[] = {
+	0xFF,
+};
+
+#define LS_PANDA_INI_NAME_PATH		"/sdcard/mp_ls_panda.ini"
+#define LS_PANDA_FW_FILP_PATH		"/sdcard/ILITEK_FW_CSOT"
+#define LS_PANDA_INI_REQUEST_PATH		"mp_ls_panda.ini"
+#define LS_PANDA_FW_REQUEST_PATH		"ilitek_fw_ls_panda.bin"
+static unsigned char CTPM_FW_LS_PANDA[] = {
+	0xFF,
+};
+
 #define LS_INX_INI_NAME_PATH		"/sdcard/mp_ls_inx.ini"
 #define LS_INX_FW_FILP_PATH		"/sdcard/ILITEK_FW_CSOT"
 #define LS_INX_INI_REQUEST_PATH		"mp_ls_inx.ini"
@@ -94,5 +110,4 @@ static unsigned char CTPM_FW_TM[] = {
 static unsigned char CTPM_FW_LS_INX[] = {
 	0xFF,
 };
-
 #endif

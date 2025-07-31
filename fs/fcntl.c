@@ -25,8 +25,6 @@
 #include <linux/user_namespace.h>
 #include <linux/memfd.h>
 #include <linux/compat.h>
-#include <linux/task_integrity.h>
-#include <linux/proca.h>
 
 #include <linux/poll.h>
 #include <asm/siginfo.h>
@@ -418,34 +416,6 @@ static long do_fcntl(int fd, unsigned int cmd, unsigned long arg,
 	case F_GETPIPE_SZ:
 		err = pipe_fcntl(filp, cmd, arg);
 		break;
-#ifdef CONFIG_FIVE
-	case F_FIVE_SIGN:
-		err = five_fcntl_sign(filp,
-				(struct integrity_label __user *)arg);
-		break;
-	case F_FIVE_VERIFY_ASYNC:
-		err = five_fcntl_verify_async(filp);
-		break;
-	case F_FIVE_VERIFY_SYNC:
-		err = five_fcntl_verify_sync(filp);
-		break;
-#if defined(CONFIG_FIVE_PA_FEATURE) || defined(CONFIG_PROCA)
-	case F_FIVE_PA_SETXATTR:
-		err = proca_fcntl_setxattr(filp, (void __user *)arg);
-		break;
-#endif
-	case F_FIVE_EDIT:
-		err = five_fcntl_edit(filp);
-		break;
-	case F_FIVE_CLOSE:
-		err = five_fcntl_close(filp);
-		break;
-#ifdef CONFIG_FIVE_DEBUG
-	case F_FIVE_DEBUG:
-		err = five_fcntl_debug(filp, (void __user *)arg);
-		break;
-#endif
-#endif
 	case F_ADD_SEALS:
 	case F_GET_SEALS:
 		err = memfd_fcntl(filp, cmd, arg);
@@ -809,9 +779,10 @@ void send_sigio(struct fown_struct *fown, int fd, int band)
 {
 	struct task_struct *p;
 	enum pid_type type;
+	unsigned long flags;
 	struct pid *pid;
 	
-	read_lock(&fown->lock);
+	read_lock_irqsave(&fown->lock, flags);
 
 	type = fown->pid_type;
 	pid = fown->pid;
@@ -832,7 +803,7 @@ void send_sigio(struct fown_struct *fown, int fd, int band)
 		read_unlock(&tasklist_lock);
 	}
  out_unlock_fown:
-	read_unlock(&fown->lock);
+	read_unlock_irqrestore(&fown->lock, flags);
 }
 
 static void send_sigurg_to_task(struct task_struct *p,
@@ -847,9 +818,10 @@ int send_sigurg(struct fown_struct *fown)
 	struct task_struct *p;
 	enum pid_type type;
 	struct pid *pid;
+	unsigned long flags;
 	int ret = 0;
 	
-	read_lock(&fown->lock);
+	read_lock_irqsave(&fown->lock, flags);
 
 	type = fown->pid_type;
 	pid = fown->pid;
@@ -872,7 +844,7 @@ int send_sigurg(struct fown_struct *fown)
 		read_unlock(&tasklist_lock);
 	}
  out_unlock_fown:
-	read_unlock(&fown->lock);
+	read_unlock_irqrestore(&fown->lock, flags);
 	return ret;
 }
 

@@ -17,6 +17,7 @@
 /*#include "himax_ic_core.h"*/
 #include "himax_inspection.h"
 #include "himax_modular_table.h"
+#include "himax_modular_setup.h"
 
 #if defined(__HIMAX_MOD__)
 int (*hx_msm_drm_register_client)(struct notifier_block *nb);
@@ -24,7 +25,7 @@ int (*hx_msm_drm_unregister_client)(struct notifier_block *nb);
 #endif
 
 #if defined(HX_SMART_WAKEUP)
-#define GEST_SUP_NUM 1
+#define GEST_SUP_NUM 26
 /* Setting cust key define (DF = double finger) */
 /* {Double Tap, Up, Down, Left, Right, C, Z, M,
  *	O, S, V, W, e, m, @, (reserve),
@@ -32,19 +33,24 @@ int (*hx_msm_drm_unregister_client)(struct notifier_block *nb);
  *	Left(DF), Right(DF)}
  */
 uint8_t gest_event[GEST_SUP_NUM] = {
-	0x80};
+	0x80, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+	0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+	0x81, 0x1D, 0x2D, 0x3D, 0x1F, 0x2F, 0x51, 0x52,
+	0x53, 0x54};
 
 /*gest_event mapping to gest_key_def*/
 uint16_t gest_key_def[GEST_SUP_NUM] = {
-	HX_KEY_DOUBLE_CLICK};
+	HX_KEY_DOUBLE_CLICK, HX_KEY_UP, HX_KEY_DOWN, HX_KEY_LEFT,
+	HX_KEY_RIGHT,	HX_KEY_C, HX_KEY_Z, HX_KEY_M,
+	HX_KEY_O, HX_KEY_S, HX_KEY_V, HX_KEY_W,
+	HX_KEY_E, HX_KEY_LC_M, HX_KEY_AT, HX_KEY_RESERVE,
+	HX_KEY_FINGER_GEST,	HX_KEY_V_DOWN, HX_KEY_V_LEFT, HX_KEY_V_RIGHT,
+	HX_KEY_F_RIGHT,	HX_KEY_F_LEFT, HX_KEY_DF_UP, HX_KEY_DF_DOWN,
+	HX_KEY_DF_LEFT,	HX_KEY_DF_RIGHT};
 
 uint8_t *wake_event_buffer;
 #endif
 
-#if !defined(HX_USE_KSYM)
-struct himax_chip_entry himax_ksym_lookup;
-EXPORT_SYMBOL(himax_ksym_lookup);
-#endif
 
 #define SUPPORT_FINGER_DATA_CHECKSUM 0x0F
 #define TS_WAKE_LOCK_TIMEOUT		(5000)
@@ -87,6 +93,26 @@ int g_i_CID_MIN; /*VER for GUEST*/
 #if defined(HX_ZERO_FLASH)
 int g_f_0f_updat;
 #endif
+#ifdef HX_PARSE_FROM_DT
+char *g_fw_boot_upgrade_name;
+EXPORT_SYMBOL(g_fw_boot_upgrade_name);
+#if defined(HX_ZERO_FLASH)
+char *g_fw_mp_upgrade_name;
+EXPORT_SYMBOL(g_fw_mp_upgrade_name);
+#endif
+#else
+char *g_fw_boot_upgrade_name = BOOT_UPGRADE_FWNAME;
+EXPORT_SYMBOL(g_fw_boot_upgrade_name);
+#if defined(HX_ZERO_FLASH)
+char *g_fw_mp_upgrade_name = MPAP_FWNAME;
+EXPORT_SYMBOL(g_fw_mp_upgrade_name);
+#endif
+#endif
+#endif
+
+#ifdef HX_PARSE_FROM_DT
+uint32_t g_proj_id = 0xffff;
+EXPORT_SYMBOL(g_proj_id);
 #endif
 
 struct himax_ts_data *private_ts;
@@ -144,6 +170,9 @@ EXPORT_SYMBOL(CID_VER_MIN_FLASH_ADDR);
 uint32_t CFG_TABLE_FLASH_ADDR;
 EXPORT_SYMBOL(CFG_TABLE_FLASH_ADDR);
 
+uint32_t CFG_TABLE_FLASH_ADDR_T;
+EXPORT_SYMBOL(CFG_TABLE_FLASH_ADDR_T);
+
 unsigned char IC_CHECKSUM;
 EXPORT_SYMBOL(IC_CHECKSUM);
 
@@ -157,8 +186,8 @@ EXPORT_SYMBOL(hx_EB_event_flag);
 int hx_EC_event_flag;
 EXPORT_SYMBOL(hx_EC_event_flag);
 
-int hx_EE_event_flag;
-EXPORT_SYMBOL(hx_EE_event_flag);
+int hx_ED_event_flag;
+EXPORT_SYMBOL(hx_ED_event_flag);
 
 int g_zero_event_count;
 
@@ -172,6 +201,7 @@ static uint8_t EN_NoiseFilter;
 static uint8_t Last_EN_NoiseFilter;
 
 static int p_point_num = 0xFFFF;
+static uint8_t p_stylus_num = 0xFF;
 static int probe_fail_flag;
 #if defined(HX_USB_DETECT_GLOBAL)
 bool USB_detect_flag;
@@ -220,17 +250,17 @@ struct proc_dir_entry *himax_proc_vendor_file;
 static int himax_palm_detect(uint8_t *buf)
 {
 	struct himax_ts_data *ts = private_ts;
-	int32_t loop_i;
+	int32_t i;
 	int base = 0;
 	int x = 0, y = 0, w = 0;
 
-	loop_i = 0;
-	base = loop_i * 4;
+	i = 0;
+	base = i * 4;
 	x = buf[base] << 8 | buf[base + 1];
 	y = (buf[base + 2] << 8 | buf[base + 3]);
-	w = buf[(ts->nFinger_support * 4) + loop_i];
+	w = buf[(ts->nFinger_support * 4) + i];
 	I(" %s HX_PALM_REPORT_loopi=%d,base=%x,X=%x,Y=%x,W=%x\n",
-		__func__, loop_i, base, x, y, w);
+		__func__, i, base, x, y, w);
 	if ((!atomic_read(&ts->suspend_mode))
 	&& (x == 0xFA5A)
 	&& (y == 0xFA5A)
@@ -813,17 +843,17 @@ void himax_parse_assign_cmd(uint32_t addr, uint8_t *cmd, int len)
 		break;
 
 	case 2:
-		cmd[0] = addr % 0x100;
-		cmd[1] = (addr >> 8) % 0x100;
+		cmd[0] = addr & 0xFF;
+		cmd[1] = (addr >> 8) & 0xFF;
 		/*I("%s: cmd[0] = 0x%02X,cmd[1] = 0x%02X\n",*/
 		/*	__func__, cmd[0], cmd[1]);*/
 		break;
 
 	case 4:
-		cmd[0] = addr % 0x100;
-		cmd[1] = (addr >> 8) % 0x100;
-		cmd[2] = (addr >> 16) % 0x100;
-		cmd[3] = addr / 0x1000000;
+		cmd[0] = addr & 0xFF;
+		cmd[1] = (addr >> 8) & 0xFF;
+		cmd[2] = (addr >> 16) & 0xFF;
+		cmd[3] = (addr >> 24) & 0xFF;
 		/*  I("%s: cmd[0] = 0x%02X,cmd[1] = 0x%02X,*/
 		/*cmd[2] = 0x%02X,cmd[3] = 0x%02X\n", */
 		/* __func__, cmd[0], cmd[1], cmd[2], cmd[3]);*/
@@ -861,10 +891,10 @@ int himax_input_register(struct himax_ts_data *ts)
 	set_bit(EV_SYN, ts->input_dev->evbit);
 	set_bit(EV_ABS, ts->input_dev->evbit);
 	set_bit(EV_KEY, ts->input_dev->evbit);
-	// set_bit(KEY_BACK, ts->input_dev->keybit);
-	// set_bit(KEY_HOME, ts->input_dev->keybit);
-	// set_bit(KEY_MENU, ts->input_dev->keybit);
-	// set_bit(KEY_SEARCH, ts->input_dev->keybit);
+	//set_bit(KEY_BACK, ts->input_dev->keybit);
+	set_bit(KEY_HOME, ts->input_dev->keybit);
+	set_bit(KEY_MENU, ts->input_dev->keybit);
+	set_bit(KEY_SEARCH, ts->input_dev->keybit);
 
 #if defined(HX_SMART_WAKEUP)
 	for (i = 0; i < GEST_SUP_NUM; i++)
@@ -912,13 +942,6 @@ int himax_input_register(struct himax_ts_data *ts)
 			ts->pdata->abs_width_max,
 			ts->pdata->abs_pressure_fuzz, 0);
 #endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MINOR, ts->pdata->abs_pressure_min, ts->pdata->abs_pressure_max, ts->pdata->abs_pressure_fuzz, 0);
-	//input_set_abs_params(ts->input_dev, ABS_MT_CUSTOM, 0, 1, 0, 0);
-	set_bit(BTN_PALM,ts->input_dev->keybit);
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
 /*	input_set_abs_params(ts->input_dev, ABS_MT_AMPLITUDE, 0,*/
 /*			((ts->pdata->abs_pressure_max << 16)*/
 /*			| ts->pdata->abs_width_max),*/
@@ -929,7 +952,7 @@ int himax_input_register(struct himax_ts_data *ts)
 /*			| ts->pdata->abs_y_max),*/
 /*			0, 0);*/
 	ts->input_dev->open = himax_input_open;
-        ts->input_dev->close = himax_input_close;
+    ts->input_dev->close = himax_input_close;
 
 	if (himax_input_register_device(ts->input_dev) == 0) {
 		ret = NO_ERR;
@@ -939,42 +962,42 @@ int himax_input_register(struct himax_ts_data *ts)
 		return INPUT_REGISTER_FAIL;
 	}
 
-	if (!ic_data->HX_PEN_FUNC)
-		goto skip_pen_operation;
+	if (!ic_data->HX_STYLUS_FUNC)
+		goto skip_stylus_operation;
 
-	set_bit(EV_SYN, ts->hx_pen_dev->evbit);
-	set_bit(EV_ABS, ts->hx_pen_dev->evbit);
-	set_bit(EV_KEY, ts->hx_pen_dev->evbit);
-	set_bit(BTN_TOUCH, ts->hx_pen_dev->keybit);
-	set_bit(INPUT_PROP_DIRECT, ts->hx_pen_dev->propbit);
+	set_bit(EV_SYN, ts->stylus_dev->evbit);
+	set_bit(EV_ABS, ts->stylus_dev->evbit);
+	set_bit(EV_KEY, ts->stylus_dev->evbit);
+	set_bit(BTN_TOUCH, ts->stylus_dev->keybit);
+	set_bit(INPUT_PROP_DIRECT, ts->stylus_dev->propbit);
 
-	set_bit(BTN_TOOL_PEN, ts->hx_pen_dev->keybit);
-	set_bit(BTN_TOOL_RUBBER, ts->hx_pen_dev->keybit);
+	set_bit(BTN_TOOL_PEN, ts->stylus_dev->keybit);
+	set_bit(BTN_TOOL_RUBBER, ts->stylus_dev->keybit);
 
-	input_set_abs_params(ts->hx_pen_dev, ABS_PRESSURE, 0, 4095, 0, 0);
-	input_set_abs_params(ts->hx_pen_dev, ABS_DISTANCE, 0, 1, 0, 0);
-	input_set_abs_params(ts->hx_pen_dev, ABS_TILT_X, -60, 60, 0, 0);
-	input_set_abs_params(ts->hx_pen_dev, ABS_TILT_Y, -60, 60, 0, 0);
+	input_set_abs_params(ts->stylus_dev, ABS_PRESSURE, 0, 4095, 0, 0);
+	input_set_abs_params(ts->stylus_dev, ABS_DISTANCE, 0, 1, 0, 0);
+	input_set_abs_params(ts->stylus_dev, ABS_TILT_X, -60, 60, 0, 0);
+	input_set_abs_params(ts->stylus_dev, ABS_TILT_Y, -60, 60, 0, 0);
 	/*input_set_capability(ts->hx_pen_dev, EV_SW, SW_PEN_INSERT);*/
-	input_set_capability(ts->hx_pen_dev, EV_KEY, BTN_TOUCH);
-	input_set_capability(ts->hx_pen_dev, EV_KEY, BTN_STYLUS);
-	input_set_capability(ts->hx_pen_dev, EV_KEY, BTN_STYLUS2);
+	input_set_capability(ts->stylus_dev, EV_KEY, BTN_TOUCH);
+	input_set_capability(ts->stylus_dev, EV_KEY, BTN_STYLUS);
+	input_set_capability(ts->stylus_dev, EV_KEY, BTN_STYLUS2);
 
-	input_set_abs_params(ts->hx_pen_dev, ABS_X, ts->pdata->abs_x_min,
+	input_set_abs_params(ts->stylus_dev, ABS_X, ts->pdata->abs_x_min,
 			ts->pdata->abs_x_max, ts->pdata->abs_x_fuzz, 0);
-	input_set_abs_params(ts->hx_pen_dev, ABS_Y, ts->pdata->abs_y_min,
+	input_set_abs_params(ts->stylus_dev, ABS_Y, ts->pdata->abs_y_min,
 			ts->pdata->abs_y_max, ts->pdata->abs_y_fuzz, 0);
 
-	if (himax_input_register_device(ts->hx_pen_dev) == 0) {
+	if (himax_input_register_device(ts->stylus_dev) == 0) {
 		ret = NO_ERR;
 	} else {
-		E("%s: input register pen fail\n", __func__);
+		E("%s: input register stylus fail\n", __func__);
 		input_unregister_device(ts->input_dev);
-		input_free_device(ts->hx_pen_dev);
+		input_free_device(ts->stylus_dev);
 		return INPUT_REGISTER_FAIL;
 	}
 
-skip_pen_operation:
+skip_stylus_operation:
 
 	I("%s, input device registered.\n", __func__);
 
@@ -1027,22 +1050,34 @@ static int himax_auto_update_check(void)
 #if defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)
 static int i_get_FW(void)
 {
-	int ret = -1;
 	int result = NO_ERR;
 
-	ret = request_firmware(&hxfw, BOOT_UPGRADE_FWNAME, private_ts->dev);
-	I("%s: request file %s finished\n", __func__, BOOT_UPGRADE_FWNAME);
-	if (ret < 0) {
-#if defined(__EMBEDDED_FW__)
-		hxfw = &g_embedded_fw;
-		I("%s: Not find FW in userspace, use embedded FW(size:%zu)",
-			__func__, g_embedded_fw.size);
-		result = HX_EMBEDDED_FW;
-#else
-		E("%s,%d: error code = %d\n", __func__, __LINE__, ret);
-		return OPEN_FILE_FAIL;
-#endif
+	int retry_count = 0;
+
+/*hs03s  code for DEVAL5626-13 by wangdeyan at 20210610 start*/
+	while (request_firmware(&hxfw, g_fw_boot_upgrade_name, private_ts->dev)){
+		E("Request firmware failed, try again,retry_count is %d\n",retry_count);
+		mdelay(100);
+		retry_count++;
+		if (retry_count >= 30)
+			return OPEN_FILE_FAIL;
 	}
+
+// 	ret = request_firmware(&hxfw, g_fw_boot_upgrade_name, private_ts->dev);
+// 	I("%s: request file %s finished\n", __func__, g_fw_boot_upgrade_name);
+// 	if (ret < 0) {
+// #if defined(__EMBEDDED_FW__)
+// 		hxfw = &g_embedded_fw;
+// 		I("%s: Not find FW in userspace, use embedded FW(size:%zu)",
+// 			__func__, g_embedded_fw.size);
+// 		result = HX_EMBEDDED_FW;
+// #else
+// 		E("%s,%d: error code = %d\n", __func__, __LINE__, ret);
+// 		return OPEN_FILE_FAIL;
+// #endif
+// 	}
+/*hs03s  code for DEVAL5626-13 by wangdeyan at 20210610 end*/
+
 
 	return result;
 }
@@ -1079,6 +1114,9 @@ update_retry:
 			(unsigned char *)hxfw->data, hxfw->size, false);
 	else if (hxfw->size == FW_SIZE_128k)
 		ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_128k(
+			(unsigned char *)hxfw->data, hxfw->size, false);
+	else if (hxfw->size == FW_SIZE_256k)
+		ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_256k(
 			(unsigned char *)hxfw->data, hxfw->size, false);
 
 	if (ret == 0) {
@@ -1127,7 +1165,7 @@ static void himax_excp_hw_reset(void)
 #if defined(HX_ZERO_FLASH)
 	I("%s: It will update fw after exception event in zero flash mode!\n",
 		__func__);
-	result = g_core_fp.fp_0f_op_file_dirly(BOOT_UPGRADE_FWNAME);
+	result = g_core_fp.fp_0f_op_file_dirly(g_fw_boot_upgrade_name);
 	if (result) {
 		E("%s: Something is wrong! Skip Update with zero flash!\n",
 			__func__);
@@ -1369,37 +1407,13 @@ int himax_report_data_init(void)
 #endif
 
 	if (g_target_report_data != NULL) {
-		if (ic_data->HX_PEN_FUNC) {
-			kfree(g_target_report_data->p_on);
-			g_target_report_data->p_on = NULL;
-			kfree(g_target_report_data->p_tilt_y);
-			g_target_report_data->p_tilt_y = NULL;
-			kfree(g_target_report_data->p_btn2);
-			g_target_report_data->p_btn2 = NULL;
-			kfree(g_target_report_data->p_btn);
-			g_target_report_data->p_btn = NULL;
-			kfree(g_target_report_data->p_tilt_x);
-			g_target_report_data->p_tilt_x = NULL;
-			kfree(g_target_report_data->p_hover);
-			g_target_report_data->p_hover = NULL;
-			kfree(g_target_report_data->pen_id);
-			g_target_report_data->pen_id = NULL;
-			kfree(g_target_report_data->p_w);
-			g_target_report_data->p_w = NULL;
-			kfree(g_target_report_data->p_y);
-			g_target_report_data->p_y = NULL;
-			kfree(g_target_report_data->p_x);
-			g_target_report_data->p_x = NULL;
+		if (ic_data->HX_STYLUS_FUNC) {
+			kfree(g_target_report_data->s);
+			g_target_report_data->s = NULL;
 		}
 
-		kfree(g_target_report_data->finger_id);
-		g_target_report_data->finger_id = NULL;
-		kfree(g_target_report_data->w);
-		g_target_report_data->w = NULL;
-		kfree(g_target_report_data->y);
-		g_target_report_data->y = NULL;
-		kfree(g_target_report_data->x);
-		g_target_report_data->x = NULL;
+		kfree(g_target_report_data->p);
+		g_target_report_data->p = NULL;
 		kfree(g_target_report_data);
 		g_target_report_data = NULL;
 	}
@@ -1428,16 +1442,11 @@ int himax_report_data_init(void)
 				+ hx_touch_data->raw_cnt_max + 1) * 4;
 	}
 
-	if (ic_data->HX_PEN_FUNC) {
-		hx_touch_data->touch_info_size += PEN_INFO_SZ;
-		hx_touch_data->rawdata_size -= PEN_INFO_SZ;
+	if (ic_data->HX_STYLUS_FUNC) {
+		hx_touch_data->touch_info_size += STYLUS_INFO_SZ;
+		hx_touch_data->rawdata_size -= STYLUS_INFO_SZ;
 	}
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-	hx_touch_data->touch_info_size += SEC_FINGER_INFO_SZ;
-	hx_touch_data->rawdata_size -= SEC_FINGER_INFO_SZ;
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
+
 	if ((ic_data->HX_TX_NUM
 	* ic_data->HX_RX_NUM
 	+ ic_data->HX_TX_NUM
@@ -1508,152 +1517,30 @@ int himax_report_data_init(void)
  *		I("%s: SMWP_event_chk = %d\n", __func__,
  *			g_target_report_data->SMWP_event_chk);
  */
-		g_target_report_data->x = kzalloc(sizeof(int)
-				* (ic_data->HX_MAX_PT), GFP_KERNEL);
-		if (g_target_report_data->x == NULL)
-			goto mem_alloc_fail_report_data_x;
 
-		g_target_report_data->y = kzalloc(sizeof(int)
-				* (ic_data->HX_MAX_PT), GFP_KERNEL);
-		if (g_target_report_data->y == NULL)
-			goto mem_alloc_fail_report_data_y;
+		g_target_report_data->p = kzalloc(
+			sizeof(struct himax_target_point_data)
+			*(ic_data->HX_MAX_PT), GFP_KERNEL);
+		if (g_target_report_data->p == NULL)
+			goto mem_alloc_fail_report_data_p;
 
-		g_target_report_data->w = kzalloc(sizeof(int)
-				* (ic_data->HX_MAX_PT), GFP_KERNEL);
-		if (g_target_report_data->w == NULL)
-			goto mem_alloc_fail_report_data_w;
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-		g_target_report_data->maj = kzalloc(sizeof(int)*(ic_data->HX_MAX_PT), GFP_KERNEL);
-		if (g_target_report_data->maj == NULL)
-			goto mem_alloc_fail_sec_palm_maj;
-		g_target_report_data->min = kzalloc(sizeof(int)*(ic_data->HX_MAX_PT), GFP_KERNEL);
-		if (g_target_report_data->min == NULL)
-			goto mem_alloc_fail_sec_palm_min;
-		g_target_report_data->palm = kzalloc(sizeof(int)*(ic_data->HX_MAX_PT), GFP_KERNEL);
-		if (g_target_report_data->palm == NULL)
-			goto mem_alloc_fail_sec_palm;
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
-		g_target_report_data->finger_id = kzalloc(sizeof(int)
-				* (ic_data->HX_MAX_PT), GFP_KERNEL);
-		if (g_target_report_data->finger_id == NULL)
-			goto mem_alloc_fail_report_data_fid;
+		if (!ic_data->HX_STYLUS_FUNC)
+			goto skip_stylus_operation;
 
-		if (!ic_data->HX_PEN_FUNC)
-			goto skip_pen_operation;
-
-		g_target_report_data->p_x = kzalloc(sizeof(int)*2, GFP_KERNEL);
-		if (g_target_report_data->p_x == NULL)
-			goto mem_alloc_fail_report_data_px;
-
-		g_target_report_data->p_y = kzalloc(sizeof(int)*2, GFP_KERNEL);
-		if (g_target_report_data->p_y == NULL)
-			goto mem_alloc_fail_report_data_py;
-
-		g_target_report_data->p_w = kzalloc(sizeof(int)*2, GFP_KERNEL);
-		if (g_target_report_data->p_w == NULL)
-			goto mem_alloc_fail_report_data_pw;
-
-		g_target_report_data->pen_id = kzalloc(sizeof(int)*2,
-				GFP_KERNEL);
-		if (g_target_report_data->pen_id == NULL)
-			goto mem_alloc_fail_report_data_pid;
-
-		g_target_report_data->p_hover = kzalloc(sizeof(int)*2,
-				GFP_KERNEL);
-		if (g_target_report_data->p_hover == NULL)
-			goto mem_alloc_fail_report_data_ph;
-
-		g_target_report_data->p_tilt_x = kzalloc(sizeof(int)*2,
-				GFP_KERNEL);
-		if (g_target_report_data->p_tilt_x == NULL)
-			goto mem_alloc_fail_report_data_ptx;
-
-		g_target_report_data->p_btn = kzalloc(sizeof(int)*2,
-				GFP_KERNEL);
-		if (g_target_report_data->p_btn == NULL)
-			goto mem_alloc_fail_report_data_pb;
-
-		g_target_report_data->p_btn2 = kzalloc(sizeof(int)*2,
-				GFP_KERNEL);
-		if (g_target_report_data->p_btn2 == NULL)
-			goto mem_alloc_fail_report_data_pb2;
-
-		g_target_report_data->p_tilt_y = kzalloc(sizeof(int)*2,
-				GFP_KERNEL);
-		if (g_target_report_data->p_tilt_y == NULL)
-			goto mem_alloc_fail_report_data_pty;
-
-		g_target_report_data->p_on = kzalloc(sizeof(int)*2, GFP_KERNEL);
-		if (g_target_report_data->p_on == NULL)
-			goto mem_alloc_fail_report_data_pon;
+		g_target_report_data->s = kzalloc(
+			sizeof(struct himax_target_stylus_data)*2, GFP_KERNEL);
+		if (g_target_report_data->s == NULL)
+			goto mem_alloc_fail_report_data_s;
 	}
 
-skip_pen_operation:
+skip_stylus_operation:
 
 	return NO_ERR;
 
-mem_alloc_fail_report_data_pon:
-	kfree(g_target_report_data->p_tilt_y);
-	g_target_report_data->p_tilt_y = NULL;
-mem_alloc_fail_report_data_pty:
-	kfree(g_target_report_data->p_btn2);
-	g_target_report_data->p_btn2 = NULL;
-mem_alloc_fail_report_data_pb2:
-	kfree(g_target_report_data->p_btn);
-	g_target_report_data->p_btn = NULL;
-mem_alloc_fail_report_data_pb:
-	kfree(g_target_report_data->p_tilt_x);
-	g_target_report_data->p_tilt_x = NULL;
-mem_alloc_fail_report_data_ptx:
-	kfree(g_target_report_data->p_hover);
-	g_target_report_data->p_hover = NULL;
-mem_alloc_fail_report_data_ph:
-	kfree(g_target_report_data->pen_id);
-	g_target_report_data->pen_id = NULL;
-mem_alloc_fail_report_data_pid:
-	kfree(g_target_report_data->p_w);
-	g_target_report_data->p_w = NULL;
-mem_alloc_fail_report_data_pw:
-	kfree(g_target_report_data->p_y);
-	g_target_report_data->p_y = NULL;
-mem_alloc_fail_report_data_py:
-	kfree(g_target_report_data->p_x);
-	g_target_report_data->p_x = NULL;
-mem_alloc_fail_report_data_px:
-
-	kfree(g_target_report_data->finger_id);
-	g_target_report_data->finger_id = NULL;
-mem_alloc_fail_report_data_fid:
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-	if (g_target_report_data->palm != NULL) {
-		kfree(g_target_report_data->palm);
-		g_target_report_data->palm = NULL;
-	}
-mem_alloc_fail_sec_palm:
-	if (g_target_report_data->min != NULL) {
-		kfree(g_target_report_data->min);
-		g_target_report_data->min = NULL;
-	}
-mem_alloc_fail_sec_palm_min:
-	if (g_target_report_data->maj != NULL) {
-		kfree(g_target_report_data->maj);
-		g_target_report_data->maj = NULL;
-	}
-mem_alloc_fail_sec_palm_maj:
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
-	kfree(g_target_report_data->w);
-	g_target_report_data->w = NULL;
-mem_alloc_fail_report_data_w:
-	kfree(g_target_report_data->y);
-	g_target_report_data->y = NULL;
-mem_alloc_fail_report_data_y:
-	kfree(g_target_report_data->x);
-	g_target_report_data->x = NULL;
-mem_alloc_fail_report_data_x:
+mem_alloc_fail_report_data_s:
+	kfree(g_target_report_data->p);
+	g_target_report_data->p = NULL;
+mem_alloc_fail_report_data_p:
 	kfree(g_target_report_data);
 	g_target_report_data = NULL;
 mem_alloc_fail_report_data:
@@ -1679,47 +1566,13 @@ EXPORT_SYMBOL(himax_report_data_init);
 
 void himax_report_data_deinit(void)
 {
-	if (ic_data->HX_PEN_FUNC) {
-		kfree(g_target_report_data->p_on);
-		g_target_report_data->p_on = NULL;
-		kfree(g_target_report_data->p_tilt_y);
-		g_target_report_data->p_tilt_y = NULL;
-		kfree(g_target_report_data->p_btn2);
-		g_target_report_data->p_btn2 = NULL;
-		kfree(g_target_report_data->p_btn);
-		g_target_report_data->p_btn = NULL;
-		kfree(g_target_report_data->p_tilt_x);
-		g_target_report_data->p_tilt_x = NULL;
-		kfree(g_target_report_data->p_hover);
-		g_target_report_data->p_hover = NULL;
-		kfree(g_target_report_data->pen_id);
-		g_target_report_data->pen_id = NULL;
-		kfree(g_target_report_data->p_w);
-		g_target_report_data->p_w = NULL;
-		kfree(g_target_report_data->p_y);
-		g_target_report_data->p_y = NULL;
-		kfree(g_target_report_data->p_x);
-		g_target_report_data->p_x = NULL;
+	if (ic_data->HX_STYLUS_FUNC) {
+		kfree(g_target_report_data->s);
+		g_target_report_data->s = NULL;
 	}
 
-	kfree(g_target_report_data->finger_id);
-	g_target_report_data->finger_id = NULL;
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-	kfree(g_target_report_data->palm);
-	g_target_report_data->palm = NULL;
-	kfree(g_target_report_data->min);
-	g_target_report_data->min = NULL;
-	kfree(g_target_report_data->maj);
-	g_target_report_data->maj = NULL;
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
-	kfree(g_target_report_data->w);
-	g_target_report_data->w = NULL;
-	kfree(g_target_report_data->y);
-	g_target_report_data->y = NULL;
-	kfree(g_target_report_data->x);
-	g_target_report_data->x = NULL;
+	kfree(g_target_report_data->p);
+	g_target_report_data->p = NULL;
 	kfree(g_target_report_data);
 	g_target_report_data = NULL;
 
@@ -1861,13 +1714,7 @@ static int himax_checksum_cal(struct himax_ts_data *ts, uint8_t *buf,
 	/* Normal */
 	switch (ts_path) {
 	case HX_REPORT_COORD:
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-		length = ts->coordInfoSize;
-#else
 		length = hx_touch_data->touch_info_size;
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
 		break;
 #if defined(HX_SMART_WAKEUP)
 /* SMWP */
@@ -1876,13 +1723,7 @@ static int himax_checksum_cal(struct himax_ts_data *ts, uint8_t *buf,
 		break;
 #endif
 	case HX_REPORT_COORD_RAWDATA:
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-		length = ts->coordInfoSize;
-#else
 		length = hx_touch_data->touch_info_size;
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
 		break;
 	default:
 		I("%s, Neither Normal Nor SMWP error!\n", __func__);
@@ -1941,13 +1782,12 @@ static int himax_ts_event_check(struct himax_ts_data *ts,
 {
 	uint32_t hx_EB_event = 0;
 	uint32_t hx_EC_event = 0;
-	uint32_t hx_EE_event = 0;
 	uint32_t hx_ED_event = 0;
 	uint32_t hx_excp_event = 0;
-//	uint32_t hx_zero_event = 0;
+	uint32_t hx_zero_event = 0;
 	int shaking_ret = 0;
 
-	uint32_t loop_i = 0;
+	uint32_t i = 0;
 	uint32_t length = 0;
 	int ret_val = ts_status;
 
@@ -1962,8 +1802,7 @@ static int himax_ts_event_check(struct himax_ts_data *ts,
 #if defined(HX_SMART_WAKEUP)
 /* SMWP */
 	case HX_REPORT_SMWP_EVENT:
-	//	length = (GEST_PTLG_ID_LEN + GEST_PTLG_HDR_LEN);
-		length = hx_touch_data->touch_info_size;
+		length = (GEST_PTLG_ID_LEN + GEST_PTLG_HDR_LEN);
 		break;
 #endif
 	case HX_REPORT_COORD_RAWDATA:
@@ -1979,28 +1818,27 @@ static int himax_ts_event_check(struct himax_ts_data *ts,
 		I("Now Path=%d, Now status=%d, length=%d\n",
 				ts_path, ts_status, length);
 
-	// if (ts_path == HX_REPORT_COORD || ts_path == HX_REPORT_COORD_RAWDATA) {
-		if (ic_data->HX_PEN_FUNC)
-			length -= PEN_INFO_SZ;
-		for (loop_i = 0; loop_i < length; loop_i++) {
+	if (ts_path == HX_REPORT_COORD || ts_path == HX_REPORT_COORD_RAWDATA) {
+		if (ic_data->HX_STYLUS_FUNC)
+			length -= STYLUS_INFO_SZ;
+		for (i = 0; i < length; i++) {
 			/* case 1 EXCEEPTION recovery flow */
-			if (buf[loop_i] == 0xEB) {
+			if (buf[i] == 0xEB) {
 				hx_EB_event++;
-			} else if (buf[loop_i] == 0xEC) {
+			} else if (buf[i] == 0xEC) {
 				hx_EC_event++;
-			} else if (buf[loop_i] == 0xEE) {
-				hx_EE_event++;
-			/* case 2 EXCEPTION recovery flow-Disable */
-			} else if (buf[loop_i] == 0xED) {
+			} else if (buf[i] == 0xED) {
 				hx_ED_event++;
-		//	} else if (buf[loop_i] == 0x00) {
-		//		hx_zero_event++;
+
+			/* case 2 EXCEPTION recovery flow-Disable */
+			} else if (buf[i] == 0x00) {
+				hx_zero_event++;
 			} else {
-		//		g_zero_event_count = 0;
+				g_zero_event_count = 0;
 				break;
 			}
 		}
-	// }
+	}
 
 	if (hx_EB_event == length) {
 		hx_excp_event = length;
@@ -2010,18 +1848,10 @@ static int himax_ts_event_check(struct himax_ts_data *ts,
 		hx_excp_event = length;
 		hx_EC_event_flag++;
 		I("[HIMAX TP MSG]: EXCEPTION event checked - ALL 0xEC.\n");
-	} else if (hx_EE_event == length) {
-		hx_excp_event = length;
-		hx_EE_event_flag++;
-		I("[HIMAX TP MSG]: EXCEPTION event checked - ALL 0xEE.\n");
 	} else if (hx_ED_event == length) {
-		/*TabA7 Lite code for P210204-06765 by gaozhengwei at 20210215 start*/
-		mutex_lock(&private_ts->fw_update_lock);
-		g_core_fp.fp_0f_reload_to_active();
-		mutex_unlock(&private_ts->fw_update_lock);
-		/*TabA7 Lite code for P210204-06765 by gaozhengwei at 20210215 end*/
-	} else {
-		g_zero_event_count = 0;
+		hx_excp_event = length;
+		hx_ED_event_flag++;
+		I("[HIMAX TP MSG]: EXCEPTION event checked - ALL 0xED.\n");
 	}
 /*#if defined(HX_ZERO_FLASH)
  *	//This is for previous version(a, b) because HW pull TSIX
@@ -2039,21 +1869,17 @@ static int himax_ts_event_check(struct himax_ts_data *ts,
  *#endif
  */
 
-	if ((hx_excp_event == length || hx_ED_event == length)
+	if ((hx_excp_event == length || hx_zero_event == length)
 		&& (HX_HW_RESET_ACTIVATE == 0)
 		&& (HX_EXCP_RESET_ACTIVATE == 0)
 		&& (hx_touch_data->diag_cmd == 0)
 		&& (ts->in_self_test == 0)) {
 		shaking_ret = g_core_fp.fp_ic_excp_recovery(
-			hx_excp_event, hx_ED_event, length);
+			hx_excp_event, hx_zero_event, length);
 
 		if (shaking_ret == HX_EXCP_EVENT) {
-			/*TabA7 Lite code for P210204-06765 by gaozhengwei at 20210215 start*/
-			mutex_lock(&private_ts->fw_update_lock);
 			g_core_fp.fp_read_FW_status();
 			himax_excp_hw_reset();
-			mutex_unlock(&private_ts->fw_update_lock);
-			/*TabA7 Lite code for P210204-06765 by gaozhengwei at 20210215 end*/
 			ret_val = HX_EXCP_EVENT;
 		} else if (shaking_ret == HX_ZERO_EVENT_COUNT) {
 			g_core_fp.fp_read_FW_status();
@@ -2121,13 +1947,9 @@ static int himax_distribute_touch_data(uint8_t *buf,
 {
 	uint8_t hx_state_info_pos = hx_touch_data->touch_info_size - 3;
 
-	if (ic_data->HX_PEN_FUNC)
-		hx_state_info_pos -= PEN_INFO_SZ;
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-	hx_state_info_pos -= SEC_FINGER_INFO_SZ;
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
+	if (ic_data->HX_STYLUS_FUNC)
+		hx_state_info_pos -= STYLUS_INFO_SZ;
+
 	if (g_ts_dbg != 0)
 		I("%s: Entering, ts_status=%d!\n", __func__, ts_status);
 
@@ -2190,33 +2012,25 @@ int himax_parse_report_points(struct himax_ts_data *ts,
 		int ts_path, int ts_status)
 {
 	int x = 0, y = 0, w = 0;
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-	int maj = 0, min = 0, palm = 0;
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
+
 	uint8_t p_hover = 0, p_btn = 0, p_btn2 = 0;
 	int8_t p_tilt_x = 0, p_tilt_y = 0;
 	int p_x = 0, p_y = 0, p_w = 0;
 	static uint8_t p_p_on;
 
 	int base = 0;
-	int32_t	loop_i = 0;
+	int32_t	i = 0;
 
 	if (g_ts_dbg != 0)
 		I("%s: start!\n", __func__);
 
 	base = hx_touch_data->touch_info_size;
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-	base -= SEC_FINGER_INFO_SZ;
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
-	if (!ic_data->HX_PEN_FUNC)
-		goto skip_pen_operation;
+
+	if (!ic_data->HX_STYLUS_FUNC)
+		goto skip_stylus_operation;
 
 	p_p_on = 0;
-	base -= PEN_INFO_SZ;
+	base -= STYLUS_INFO_SZ;
 
 	p_x = hx_touch_data->hx_coord_buf[base] << 8
 		| hx_touch_data->hx_coord_buf[base + 1];
@@ -2241,39 +2055,39 @@ int himax_parse_report_points(struct himax_ts_data *ts,
 	&& p_x <= ts->pdata->abs_x_max
 	&& p_y >= 0
 	&& p_y <= ts->pdata->abs_y_max) {
-		g_target_report_data->p_x[0] = p_x;
-		g_target_report_data->p_y[0] = p_y;
-		g_target_report_data->p_w[0] = p_w;
-		g_target_report_data->p_hover[0] = p_hover;
-		g_target_report_data->pen_id[0] = 1;
-		g_target_report_data->p_btn[0] = p_btn;
-		g_target_report_data->p_btn2[0] = p_btn2;
-		g_target_report_data->p_tilt_x[0] = p_tilt_x;
-		g_target_report_data->p_tilt_y[0] = p_tilt_y;
-		g_target_report_data->p_on[0] = 1;
-		ts->hx_point_num++;
+		g_target_report_data->s[0].x = p_x;
+		g_target_report_data->s[0].y = p_y;
+		g_target_report_data->s[0].w = p_w;
+		g_target_report_data->s[0].hover = p_hover;
+		g_target_report_data->s[0].id = 1;
+		g_target_report_data->s[0].btn = p_btn;
+		g_target_report_data->s[0].btn2 = p_btn2;
+		g_target_report_data->s[0].tilt_x = p_tilt_x;
+		g_target_report_data->s[0].tilt_y = p_tilt_y;
+		g_target_report_data->s[0].on = 1;
+		ts->hx_stylus_num++;
 	} else {/* report coordinates */
-		g_target_report_data->p_x[0] = 0;
-		g_target_report_data->p_y[0] = 0;
-		g_target_report_data->p_w[0] = 0;
-		g_target_report_data->p_hover[0] = 0;
-		g_target_report_data->pen_id[0] = 0;
-		g_target_report_data->p_btn[0] = 0;
-		g_target_report_data->p_btn2[0] = 0;
-		g_target_report_data->p_tilt_x[0] = 0;
-		g_target_report_data->p_tilt_y[0] = 0;
-		g_target_report_data->p_on[0] = 0;
+		g_target_report_data->s[0].x = 0;
+		g_target_report_data->s[0].y = 0;
+		g_target_report_data->s[0].w = 0;
+		g_target_report_data->s[0].hover = 0;
+		g_target_report_data->s[0].id = 0;
+		g_target_report_data->s[0].btn = 0;
+		g_target_report_data->s[0].btn2 = 0;
+		g_target_report_data->s[0].tilt_x = 0;
+		g_target_report_data->s[0].tilt_y = 0;
+		g_target_report_data->s[0].on = 0;
 	}
 
 	if (g_ts_dbg != 0) {
-		if (p_p_on != g_target_report_data->p_on[0]) {
-			I("p_on[0] = %d, hx_point_num=%d\n",
-				g_target_report_data->p_on[0],
-				ts->hx_point_num);
-			p_p_on = g_target_report_data->p_on[0];
+		if (p_p_on != g_target_report_data->s[0].on) {
+			I("s[0].on = %d, hx_stylus_num=%d\n",
+				g_target_report_data->s[0].on,
+				ts->hx_stylus_num);
+			p_p_on = g_target_report_data->s[0].on;
 		}
 	}
-skip_pen_operation:
+skip_stylus_operation:
 
 	ts->old_finger = ts->pre_finger_mask;
 	if (ts->hx_point_num == 0) {
@@ -2291,55 +2105,34 @@ skip_pen_operation:
 	g_target_report_data->finger_on = hx_touch_data->finger_on;
 	g_target_report_data->ig_count =
 		hx_touch_data->hx_coord_buf[base - 5];
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-	palm = (hx_touch_data->hx_state_info[0] >> 3 & 0x01);
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
+
 	if (g_ts_dbg != 0)
 		I("%s:finger_num = 0x%2X, finger_on = %d\n", __func__,
 				g_target_report_data->finger_num,
 				g_target_report_data->finger_on);
 
-	for (loop_i = 0; loop_i < ts->nFinger_support; loop_i++) {
-		base = loop_i * 4;
+	for (i = 0; i < ts->nFinger_support; i++) {
+		base = i * 4;
 		x = hx_touch_data->hx_coord_buf[base] << 8
 			| hx_touch_data->hx_coord_buf[base + 1];
 		y = (hx_touch_data->hx_coord_buf[base + 2] << 8
 			| hx_touch_data->hx_coord_buf[base + 3]);
-		w = hx_touch_data->hx_coord_buf[(ts->nFinger_support * 4)
-			+ loop_i];
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-		maj = hx_touch_data->hx_coord_buf[ts->coordInfoSize+(loop_i*2)];
-		min = hx_touch_data->hx_coord_buf[ts->coordInfoSize+(loop_i*2)+1];
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
+		w = hx_touch_data->hx_coord_buf[(ts->nFinger_support * 4) + i];
+
 		if (g_ts_dbg != 0)
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#ifndef SEC_PALM_FUNC
-			I("%s: now parsing[%d]:x=%d, y=%d, w=%d\n", __func__, loop_i, x, y, w);
-#else
-			I("%s: now parsing[%d]:x=%d, y=%d, w=%d, maj=%d, min=%d, palm=%d\n", __func__, loop_i, x, y, w, maj, min, palm);
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
+			D("%s: now parsing[%d]:x=%d, y=%d, w=%d\n", __func__,
+					i, x, y, w);
+
 		if (x >= 0
 		&& x <= ts->pdata->abs_x_max
 		&& y >= 0
 		&& y <= ts->pdata->abs_y_max) {
 			hx_touch_data->finger_num--;
 
-			g_target_report_data->x[loop_i] = x;
-			g_target_report_data->y[loop_i] = y;
-			g_target_report_data->w[loop_i] = w;
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#ifdef SEC_PALM_FUNC
-			g_target_report_data->maj[loop_i] = maj;
-			g_target_report_data->min[loop_i] = min;
-			g_target_report_data->palm[loop_i] = palm;
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
-			g_target_report_data->finger_id[loop_i] = 1;
+			g_target_report_data->p[i].x = x;
+			g_target_report_data->p[i].y = y;
+			g_target_report_data->p[i].w = w;
+			g_target_report_data->p[i].id = 1;
 
 			/*I("%s: g_target_report_data->x[loop_i]=%d,*/
 			/*g_target_report_data->y[loop_i]=%d,*/
@@ -2348,33 +2141,22 @@ skip_pen_operation:
 			/*g_target_report_data->y[loop_i],*/
 			/*g_target_report_data->w[loop_i]); */
 
-
 			if (!ts->first_pressed) {
 				ts->first_pressed = 1;
 				I("S1@%d, %d\n", x, y);
 			}
 
-			ts->pre_finger_data[loop_i][0] = x;
-			ts->pre_finger_data[loop_i][1] = y;
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#ifdef SEC_PALM_FUNC
-			ts->pre_finger_data[loop_i][4] = maj;
-			ts->pre_finger_data[loop_i][5] = min;
-#endif
-			ts->pre_finger_mask = ts->pre_finger_mask
-					+ (1 << loop_i);
-		} else {/* report coordinates */
-			g_target_report_data->x[loop_i] = x;
-			g_target_report_data->y[loop_i] = y;
-			g_target_report_data->w[loop_i] = w;
-#ifdef SEC_PALM_FUNC
-			g_target_report_data->maj[loop_i] = maj;
-			g_target_report_data->min[loop_i] = min;
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
-			g_target_report_data->finger_id[loop_i] = 0;
+			ts->pre_finger_data[i][0] = x;
+			ts->pre_finger_data[i][1] = y;
 
-			if (loop_i == 0 && ts->first_pressed == 1) {
+			ts->pre_finger_mask = ts->pre_finger_mask + (1<<i);
+		} else {/* report coordinates */
+			g_target_report_data->p[i].x = x;
+			g_target_report_data->p[i].y = y;
+			g_target_report_data->p[i].w = w;
+			g_target_report_data->p[i].id = 0;
+
+			if (i == 0 && ts->first_pressed == 1) {
 				ts->first_pressed = 2;
 				I("E1@%d, %d\n", ts->pre_finger_data[0][0],
 						ts->pre_finger_data[0][1]);
@@ -2383,11 +2165,11 @@ skip_pen_operation:
 	}
 
 	if (g_ts_dbg != 0) {
-		for (loop_i = 0; loop_i < 10; loop_i++)
+		for (i = 0; i < ts->nFinger_support; i++)
 			D("DBG X=%d  Y=%d ID=%d\n",
-				g_target_report_data->x[loop_i],
-				g_target_report_data->y[loop_i],
-				g_target_report_data->finger_id[loop_i]);
+				g_target_report_data->p[i].x,
+				g_target_report_data->p[i].y,
+				g_target_report_data->p[i].id);
 
 		D("DBG finger number %d\n", g_target_report_data->finger_num);
 	}
@@ -2418,6 +2200,11 @@ static int himax_parse_report_data(struct himax_ts_data *ts,
 		ts->hx_point_num =
 			hx_touch_data->hx_coord_buf[HX_TOUCH_INFO_POINT_CNT]
 			& 0x0f;
+
+	if (ic_data->HX_STYLUS_FUNC) {
+		p_stylus_num = ts->hx_stylus_num;
+		ts->hx_stylus_num = 0;
+	}
 
 	switch (ts_path) {
 	case HX_REPORT_COORD:
@@ -2452,21 +2239,12 @@ static int himax_parse_report_data(struct himax_ts_data *ts,
 
 static void himax_report_all_leave_event(struct himax_ts_data *ts)
 {
-	int loop_i = 0;
+	int i = 0;
 
-	for (loop_i = 0; loop_i < ts->nFinger_support; loop_i++) {
+	for (i = 0; i < ts->nFinger_support; i++) {
 #if !defined(HX_PROTOCOL_A)
-		input_mt_slot(ts->input_dev, loop_i);
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
- 		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MINOR, 0);
-		input_report_key(ts->input_dev, BTN_PALM,0);
-		//input_report_abs(ts->input_dev, ABS_MT_CUSTOM, 0);
-#else
-		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0)
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
+		input_mt_slot(ts->input_dev, i);
+		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
 		input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0);
 		input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
 		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
@@ -2477,7 +2255,7 @@ static void himax_report_all_leave_event(struct himax_ts_data *ts)
 }
 
 /* start report_point*/
-static void himax_finger_report(struct himax_ts_data *ts)
+static void himax_point_report(struct himax_ts_data *ts)
 {
 	int i = 0;
 	bool valid = false;
@@ -2488,10 +2266,10 @@ static void himax_finger_report(struct himax_ts_data *ts)
 			__func__, hx_touch_data->finger_num);
 	}
 	for (i = 0; i < ts->nFinger_support; i++) {
-		if (g_target_report_data->x[i] >= 0
-		&& g_target_report_data->x[i] <= ts->pdata->abs_x_max
-		&& g_target_report_data->y[i] >= 0
-		&& g_target_report_data->y[i] <= ts->pdata->abs_y_max)
+		if (g_target_report_data->p[i].x >= 0
+		&& g_target_report_data->p[i].x <= ts->pdata->abs_x_max
+		&& g_target_report_data->p[i].y >= 0
+		&& g_target_report_data->p[i].y <= ts->pdata->abs_y_max)
 			valid = true;
 		else
 			valid = false;
@@ -2500,38 +2278,30 @@ static void himax_finger_report(struct himax_ts_data *ts)
 		if (valid) {
 			if (g_ts_dbg != 0) {
 				I("report_data->x[i]=%d,y[i]=%d,w[i]=%d",
-					g_target_report_data->x[i],
-					g_target_report_data->y[i],
-					g_target_report_data->w[i]);
+					g_target_report_data->p[i].x,
+					g_target_report_data->p[i].y,
+					g_target_report_data->p[i].w);
 			}
 #if !defined(HX_PROTOCOL_A)
 			input_mt_slot(ts->input_dev, i);
 #else
 			input_report_key(ts->input_dev, BTN_TOUCH, 1);
 #endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-			input_report_key(ts->input_dev, BTN_PALM, g_target_report_data->palm[i]);
-			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, g_target_report_data->maj[i]);
-			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MINOR, g_target_report_data->min[i]);
-			//input_report_abs(ts->input_dev, ABS_MT_CUSTOM, g_target_report_data->palm[i]);
-#else
-			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, g_target_report_data->w[i]);
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
+			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR,
+					g_target_report_data->p[i].w);
 #if !defined(HX_PROTOCOL_A)
 			input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR,
-					g_target_report_data->w[i]);
+					g_target_report_data->p[i].w);
 			input_report_abs(ts->input_dev, ABS_MT_PRESSURE,
-					g_target_report_data->w[i]);
+					g_target_report_data->p[i].w);
 #else
 			input_report_abs(ts->input_dev, ABS_MT_TRACKING_ID,
 					i + 1);
 #endif
 			input_report_abs(ts->input_dev, ABS_MT_POSITION_X,
-					g_target_report_data->x[i]);
+					g_target_report_data->p[i].x);
 			input_report_abs(ts->input_dev, ABS_MT_POSITION_Y,
-					g_target_report_data->y[i]);
+					g_target_report_data->p[i].y);
 #if !defined(HX_PROTOCOL_A)
 			ts->last_slot = i;
 			input_mt_report_slot_state(ts->input_dev,
@@ -2542,16 +2312,7 @@ static void himax_finger_report(struct himax_ts_data *ts)
 		} else {
 #if !defined(HX_PROTOCOL_A)
 			input_mt_slot(ts->input_dev, i);
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
-            input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MINOR, 0);
-			//input_report_key(ts->input_dev, BTN_PALM,0);
-			//input_report_abs(ts->input_dev, ABS_MT_CUSTOM, 0);
-#else
- 			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
+			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
 			input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0);
 			input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
 			input_mt_report_slot_state(ts->input_dev,
@@ -2564,112 +2325,14 @@ static void himax_finger_report(struct himax_ts_data *ts)
 #endif
 	input_sync(ts->input_dev);
 
-	if (!ic_data->HX_PEN_FUNC)
-		goto skip_pen_operation;
-
-	valid = false;
-
-	if (g_target_report_data->p_x[0] >= 0
-	&& g_target_report_data->p_x[0] <= ts->pdata->abs_x_max
-	&& g_target_report_data->p_y[0] >= 0
-	&& g_target_report_data->p_y[0] <= ts->pdata->abs_y_max
-	&& (g_target_report_data->p_on[0] == 1))
-		valid = true;
-	else
-		valid = false;
-
-	if (g_ts_dbg != 0)
-		I("pen valid=%d\n", valid);
-
-	if (valid) {/*Pen down*/
-		if (g_ts_dbg != 0)
-			I("p_x[i]=%d, p_y[i]=%d, p_w[i]=%d\n",
-					g_target_report_data->p_x[0],
-					g_target_report_data->p_y[0],
-					g_target_report_data->p_w[0]);
-
-		input_report_abs(ts->hx_pen_dev, ABS_X,
-				g_target_report_data->p_x[0]);
-		input_report_abs(ts->hx_pen_dev, ABS_Y,
-				g_target_report_data->p_y[0]);
-
-		if (g_target_report_data->p_btn[0] !=
-		g_target_report_data->pre_p_btn) {
-			if (g_ts_dbg != 0)
-				I("BTN_STYLUS:%d\n",
-					g_target_report_data->p_btn[0]);
-
-			input_report_key(ts->hx_pen_dev, BTN_STYLUS,
-					g_target_report_data->p_btn[0]);
-
-			g_target_report_data->pre_p_btn =
-					g_target_report_data->p_btn[0];
-		} else {
-			if (g_ts_dbg != 0)
-				I("BTN_STYLUS status no change, value=%d!\n",
-						g_target_report_data->p_btn[0]);
-		}
-
-		if (g_target_report_data->p_btn2[0]
-		!= g_target_report_data->pre_p_btn2) {
-			if (g_ts_dbg != 0)
-				I("BTN_STYLUS2:%d\n",
-					g_target_report_data->p_btn2[0]);
-
-			input_report_key(ts->hx_pen_dev, BTN_STYLUS2,
-					g_target_report_data->p_btn2[0]);
-
-			g_target_report_data->pre_p_btn2 =
-					g_target_report_data->p_btn2[0];
-		} else {
-			if (g_ts_dbg != 0)
-				I("BTN_STYLUS2 status no change, value=%d!\n",
-					g_target_report_data->p_btn2[0]);
-		}
-		input_report_abs(ts->hx_pen_dev, ABS_TILT_X,
-				g_target_report_data->p_tilt_x[0]);
-
-		input_report_abs(ts->hx_pen_dev, ABS_TILT_Y,
-				g_target_report_data->p_tilt_y[0]);
-
-		input_report_key(ts->hx_pen_dev, BTN_TOOL_PEN, 1);
-
-		if (g_target_report_data->p_hover[0] == 0) {
-			input_report_key(ts->hx_pen_dev, BTN_TOUCH, 1);
-			input_report_abs(ts->hx_pen_dev, ABS_DISTANCE, 0);
-			input_report_abs(ts->hx_pen_dev, ABS_PRESSURE,
-					g_target_report_data->p_w[0]);
-		} else {
-			input_report_key(ts->hx_pen_dev, BTN_TOUCH, 0);
-			input_report_abs(ts->hx_pen_dev, ABS_DISTANCE, 1);
-			input_report_abs(ts->hx_pen_dev, ABS_PRESSURE, 0);
-		}
-	} else {/*Pen up*/
-		g_target_report_data->pre_p_btn = 0;
-		g_target_report_data->pre_p_btn2 = 0;
-		input_report_key(ts->hx_pen_dev, BTN_STYLUS, 0);
-		input_report_key(ts->hx_pen_dev, BTN_STYLUS2, 0);
-		input_report_key(ts->hx_pen_dev, BTN_TOUCH, 0);
-		input_report_abs(ts->hx_pen_dev, ABS_PRESSURE, 0);
-		input_sync(ts->hx_pen_dev);
-
-		input_report_abs(ts->hx_pen_dev, ABS_DISTANCE, 0);
-		input_report_key(ts->hx_pen_dev, BTN_TOOL_RUBBER, 0);
-		input_report_key(ts->hx_pen_dev, BTN_TOOL_PEN, 0);
-		input_report_abs(ts->hx_pen_dev, ABS_PRESSURE, 0);
-	}
-	input_sync(ts->hx_pen_dev);
-
-skip_pen_operation:
-
 	if (g_ts_dbg != 0)
 		I("%s:end\n", __func__);
 }
 
-static void himax_finger_leave(struct himax_ts_data *ts)
+static void himax_point_leave(struct himax_ts_data *ts)
 {
 #if !defined(HX_PROTOCOL_A)
-	int32_t loop_i = 0;
+	int32_t i = 0;
 #endif
 
 	if (g_ts_dbg != 0)
@@ -2697,18 +2360,9 @@ static void himax_finger_leave(struct himax_ts_data *ts)
 	input_mt_sync(ts->input_dev);
 #endif
 #if !defined(HX_PROTOCOL_A)
-	for (loop_i = 0; loop_i < ts->nFinger_support; loop_i++) {
-		input_mt_slot(ts->input_dev, loop_i);
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 start*/
-#if defined(SEC_PALM_FUNC)
+	for (i = 0; i < ts->nFinger_support; i++) {
+		input_mt_slot(ts->input_dev, i);
 		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MINOR, 0);
-		input_report_key(ts->input_dev, BTN_PALM,0);
-		//input_report_abs(ts->input_dev, ABS_MT_CUSTOM, 0);
-#else
-		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-#endif
-/*TabA7 Lite code for SR-AX3565-01-740 by fengzhigang at 20210126 end*/
 		input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0);
 		input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
 		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
@@ -2730,42 +2384,134 @@ static void himax_finger_leave(struct himax_ts_data *ts)
 	input_report_key(ts->input_dev, BTN_TOUCH, 0);
 	input_sync(ts->input_dev);
 
-	if (ic_data->HX_PEN_FUNC) {
-		input_report_key(ts->hx_pen_dev, BTN_STYLUS, 0);
-		input_report_key(ts->hx_pen_dev, BTN_TOUCH, 0);
-		input_report_abs(ts->hx_pen_dev, ABS_PRESSURE, 0);
-		input_sync(ts->hx_pen_dev);
-
-		input_report_abs(ts->hx_pen_dev, ABS_DISTANCE, 0);
-		input_report_abs(ts->hx_pen_dev, ABS_TILT_X, 0);
-		input_report_abs(ts->hx_pen_dev, ABS_TILT_Y, 0);
-		input_report_key(ts->hx_pen_dev, BTN_TOOL_RUBBER, 0);
-		input_report_key(ts->hx_pen_dev, BTN_TOOL_PEN, 0);
-		input_sync(ts->hx_pen_dev);
-	}
-
 	if (g_ts_dbg != 0)
 		I("%s: end!\n", __func__);
-
-
 }
 
-static void himax_report_points(struct himax_ts_data *ts)
+static void himax_stylus_report(struct himax_ts_data *ts)
+{
+	bool valid = false;
+
+	if (g_ts_dbg != 0) {
+		I("%s:start hx_touch_data->stylus_num=%d\n",
+			__func__, ts->hx_stylus_num);
+	}
+
+	if (g_target_report_data->s[0].x >= 0
+	&& g_target_report_data->s[0].x <= ts->pdata->abs_x_max
+	&& g_target_report_data->s[0].y >= 0
+	&& g_target_report_data->s[0].y <= ts->pdata->abs_y_max
+	&& (g_target_report_data->s[0].on == 1))
+		valid = true;
+	else
+		valid = false;
+
+	if (g_ts_dbg != 0)
+		I("stylus valid=%d\n", valid);
+
+	if (valid) {/*stylus down*/
+		if (g_ts_dbg != 0)
+			I("s[i].x=%d, s[i].y=%d, s[i].w=%d\n",
+					g_target_report_data->s[0].x,
+					g_target_report_data->s[0].y,
+					g_target_report_data->s[0].w);
+
+		input_report_abs(ts->stylus_dev, ABS_X,
+				g_target_report_data->s[0].x);
+		input_report_abs(ts->stylus_dev, ABS_Y,
+				g_target_report_data->s[0].y);
+
+		if (g_target_report_data->s[0].btn !=
+		g_target_report_data->s[0].pre_btn) {
+			if (g_ts_dbg != 0)
+				I("BTN_STYLUS:%d\n",
+					g_target_report_data->s[0].btn);
+
+			input_report_key(ts->stylus_dev, BTN_STYLUS,
+					g_target_report_data->s[0].btn);
+
+			g_target_report_data->s[0].pre_btn =
+					g_target_report_data->s[0].btn;
+		} else {
+			if (g_ts_dbg != 0)
+				I("BTN_STYLUS status is %d!\n",
+						g_target_report_data->s[0].btn);
+		}
+
+		if (g_target_report_data->s[0].btn2
+		!= g_target_report_data->s[0].pre_btn2) {
+			if (g_ts_dbg != 0)
+				I("BTN_STYLUS2:%d\n",
+					g_target_report_data->s[0].btn2);
+
+			input_report_key(ts->stylus_dev, BTN_STYLUS2,
+					g_target_report_data->s[0].btn2);
+
+			g_target_report_data->s[0].pre_btn2 =
+					g_target_report_data->s[0].btn2;
+		} else {
+			if (g_ts_dbg != 0)
+				I("BTN_STYLUS2 status is %d!\n",
+					g_target_report_data->s[0].btn2);
+		}
+		input_report_abs(ts->stylus_dev, ABS_TILT_X,
+				g_target_report_data->s[0].tilt_x);
+
+		input_report_abs(ts->stylus_dev, ABS_TILT_Y,
+				g_target_report_data->s[0].tilt_y);
+
+		input_report_key(ts->stylus_dev, BTN_TOOL_PEN, 1);
+
+		if (g_target_report_data->s[0].hover == 0) {
+			input_report_key(ts->stylus_dev, BTN_TOUCH, 1);
+			input_report_abs(ts->stylus_dev, ABS_DISTANCE, 0);
+			input_report_abs(ts->stylus_dev, ABS_PRESSURE,
+					g_target_report_data->s[0].w);
+		} else {
+			input_report_key(ts->stylus_dev, BTN_TOUCH, 0);
+			input_report_abs(ts->stylus_dev, ABS_DISTANCE, 1);
+			input_report_abs(ts->stylus_dev, ABS_PRESSURE, 0);
+		}
+	} else {/*Pen up*/
+		g_target_report_data->s[0].pre_btn = 0;
+		g_target_report_data->s[0].pre_btn2 = 0;
+		input_report_key(ts->stylus_dev, BTN_STYLUS, 0);
+		input_report_key(ts->stylus_dev, BTN_STYLUS2, 0);
+		input_report_key(ts->stylus_dev, BTN_TOUCH, 0);
+		input_report_abs(ts->stylus_dev, ABS_PRESSURE, 0);
+		input_sync(ts->stylus_dev);
+
+		input_report_abs(ts->stylus_dev, ABS_DISTANCE, 0);
+		input_report_key(ts->stylus_dev, BTN_TOOL_RUBBER, 0);
+		input_report_key(ts->stylus_dev, BTN_TOOL_PEN, 0);
+		input_report_abs(ts->stylus_dev, ABS_PRESSURE, 0);
+	}
+	input_sync(ts->stylus_dev);
+
+	if (g_ts_dbg != 0)
+		I("%s:end\n", __func__);
+}
+
+static void himax_stylus_leave(struct himax_ts_data *ts)
 {
 	if (g_ts_dbg != 0)
 		I("%s: start!\n", __func__);
 
-	if (ts->hx_point_num != 0)
-		himax_finger_report(ts);
-	else
-		himax_finger_leave(ts);
+	input_report_key(ts->stylus_dev, BTN_STYLUS, 0);
+	input_report_key(ts->stylus_dev, BTN_TOUCH, 0);
+	input_report_abs(ts->stylus_dev, ABS_PRESSURE, 0);
+	input_sync(ts->stylus_dev);
 
-	Last_EN_NoiseFilter = EN_NoiseFilter;
+	input_report_abs(ts->stylus_dev, ABS_DISTANCE, 0);
+	input_report_abs(ts->stylus_dev, ABS_TILT_X, 0);
+	input_report_abs(ts->stylus_dev, ABS_TILT_Y, 0);
+	input_report_key(ts->stylus_dev, BTN_TOOL_RUBBER, 0);
+	input_report_key(ts->stylus_dev, BTN_TOOL_PEN, 0);
+	input_sync(ts->stylus_dev);
 
 	if (g_ts_dbg != 0)
 		I("%s: end!\n", __func__);
 }
-/* end report_points*/
 
 int himax_report_data(struct himax_ts_data *ts, int ts_path, int ts_status)
 {
@@ -2774,11 +2520,25 @@ int himax_report_data(struct himax_ts_data *ts, int ts_path, int ts_status)
 
 	if (ts_path == HX_REPORT_COORD || ts_path == HX_REPORT_COORD_RAWDATA) {
 		/* Touch Point information */
-		if (ts->tp_is_enabled != 0) {
-                        himax_report_points(ts);
-                } else {
-                        E("tp enable is 0, dont report point\n");
-                }
+		if (ts->hx_point_num != 0) {
+			if (ts->tp_is_enabled != 0) {
+				himax_point_report(ts);
+			} else {
+				E("tp enable is 0, dont report point\n");
+			}
+		}
+		else if (ts->hx_point_num == 0 && p_point_num != 0)
+			himax_point_leave(ts);
+
+		if (ic_data->HX_STYLUS_FUNC) {
+			if (ts->hx_stylus_num != 0)
+				himax_stylus_report(ts);
+			else if (ts->hx_stylus_num == 0 && p_stylus_num != 0)
+				himax_stylus_leave(ts);
+		}
+
+		Last_EN_NoiseFilter = EN_NoiseFilter;
+
 #if defined(HX_SMART_WAKEUP)
 	} else if (ts_path == HX_REPORT_SMWP_EVENT) {
 		himax_wake_event_report();
@@ -2898,15 +2658,15 @@ enum hrtimer_restart himax_ts_timer_func(struct hrtimer *timer)
 }
 
 #if !defined(HX_ZERO_FLASH)
-static int hx_chk_flash_sts(void)
+static int hx_chk_flash_sts(uint32_t size)
 {
 	int rslt = 0;
 
-	I("%s: Entering\n", __func__);
+	I("%s: Entering, %d\n", __func__, size);
 
-	rslt = (!g_core_fp.fp_calculateChecksum(false, FW_SIZE_128k));
+	rslt = (!g_core_fp.fp_calculateChecksum(false, size));
 	/*avoid the FW is full of zero*/
-	rslt |= g_core_fp.fp_flash_lastdata_check(FW_SIZE_128k);
+	rslt |= g_core_fp.fp_flash_lastdata_check(size);
 
 	return rslt;
 }
@@ -2926,7 +2686,7 @@ static void himax_boot_upgrade(struct work_struct *work)
 #if defined(HX_ZERO_FLASH)
 	g_boot_upgrade_flag = true;
 #else
-	if (hx_chk_flash_sts() == 1) {
+	if (hx_chk_flash_sts(ic_data->flash_size) == 1) {
 		E("%s: check flash fail, please upgrade FW\n", __func__);
 	#if defined(HX_BOOT_UPGRADE)
 		g_boot_upgrade_flag = true;
@@ -3008,38 +2768,13 @@ static void himax_fb_register(struct work_struct *work)
 }
 #endif
 
-#if defined(HX_CONTAINER_SPEED_UP) || defined(HX_RESUME_BY_DDI)
+#if defined(HX_CONTAINER_SPEED_UP)
 static void himax_resume_work_func(struct work_struct *work)
 {
-	/*TabA7 Lite code for P210204-06765 by gaozhengwei at 20210215 start*/
-	mutex_lock(&private_ts->fw_update_lock);
 	himax_chip_common_resume(private_ts);
-	mutex_unlock(&private_ts->fw_update_lock);
-	/*TabA7 Lite code for P210204-06765 by gaozhengwei at 20210215 end*/
 }
 
 #endif
-
-#if defined(HX_RESUME_BY_DDI)
-void himax_resume_by_ddi(void)
-{
-	// if (private_ts->suspended == true )
-	// {
-	// 	I("%s:it is not resume mode \n", __func__);
-	// 	return;
-	// }
-	I("%s:resume from ddi start \n", __func__);
-#if defined(HX_SMART_WAKEUP)
-	if(private_ts->SMWP_enable){
-		himax_int_enable(0);
-	}
-#endif
-	queue_delayed_work(private_ts->ts_int_workqueue,
-				&private_ts->ts_int_work,
-				msecs_to_jiffies(DELAY_TIME));
-}
-#endif
-
 int himax_chip_common_init(void)
 {
 
@@ -3048,6 +2783,12 @@ int himax_chip_common_init(void)
 	struct himax_ts_data *ts = private_ts;
 	struct himax_i2c_platform_data *pdata;
 	struct himax_chip_entry *entry;
+
+	I("Link data!\n");
+	if (himax_ic_setup_external_symbols() < 0) {
+		E("Link Fail!\n");
+		goto err_xfer_buff_fail;
+	}
 
 	I("Prepare kernel fp\n");
 	kp_getname_kernel = (void *)kallsyms_lookup_name("getname_kernel");
@@ -3089,6 +2830,9 @@ int himax_chip_common_init(void)
 		err = -ENOMEM;
 		goto err_dt_ic_data_fail;
 	}
+	memset(ic_data, 0xFF, sizeof(struct himax_ic_data));
+	/* default 128k, different size please follow HX83121A style */
+	ic_data->flash_size = 131072;
 
 	/* allocate report data */
 	hx_touch_data = kzalloc(sizeof(struct himax_report_data), GFP_KERNEL);
@@ -3169,7 +2913,9 @@ found_hx_chip:
 		E("%s: function point of chip_init is NULL!\n", __func__);
 		goto error_ic_detect_failed;
 	}
-
+#ifdef HX_PARSE_FROM_DT
+	himax_parse_dt_ic_info(ts, pdata);
+#endif
 	g_core_fp.fp_touch_information();
 
 	spin_lock_init(&ts->irq_lock);
@@ -3180,10 +2926,6 @@ found_hx_chip:
 	}
 
 	himax_int_enable(0);
-	
-/*TabA7 Lite code for ot8-985 by liupengtao at 20210111 start*/
-	g_core_fp.fp_calc_touch_data_size();
-/*TabA7 Lite code for ot8-985 by liupengtao at 20210111 end*/
 
 	ts->himax_boot_upgrade_wq =
 		create_singlethread_workqueue("HX_boot_upgrade");
@@ -3196,7 +2938,7 @@ found_hx_chip:
 	queue_delayed_work(ts->himax_boot_upgrade_wq, &ts->work_boot_upgrade,
 			msecs_to_jiffies(200));
 
-	//g_core_fp.fp_calc_touch_data_size();
+	g_core_fp.fp_calc_touch_data_size();
 
 	/*Himax Power On and Load Config*/
 /*	if (himax_loadSensorConfig(pdata)) {
@@ -3268,7 +3010,7 @@ found_hx_chip:
 		goto err_input_register_device_failed;
 	}
 
-#if defined(HX_CONTAINER_SPEED_UP) || defined(HX_RESUME_BY_DDI)
+#if defined(HX_CONTAINER_SPEED_UP)
 	ts->ts_int_workqueue =
 			create_singlethread_workqueue("himax_ts_resume_wq");
 	if (!ts->ts_int_workqueue) {
@@ -3278,7 +3020,6 @@ found_hx_chip:
 	INIT_DELAYED_WORK(&ts->ts_int_work, himax_resume_work_func);
 #endif
 
-	mutex_init(&ts->fw_update_lock);
 	ts->initialized = true;
 
 #if defined(HX_CONFIG_FB) || defined(HX_CONFIG_DRM)
@@ -3302,14 +3043,14 @@ found_hx_chip:
 	destroy_workqueue(ts->himax_att_wq);
 err_get_intr_bit_failed:
 #endif
-#if defined(HX_CONTAINER_SPEED_UP) || defined(HX_RESUME_BY_DDI)
+#if defined(HX_CONTAINER_SPEED_UP)
 	cancel_delayed_work_sync(&ts->ts_int_work);
 	destroy_workqueue(ts->ts_int_workqueue);
 err_create_ts_resume_wq_failed:
 #endif
 	input_unregister_device(ts->input_dev);
-	if (ic_data->HX_PEN_FUNC)
-		input_unregister_device(ts->hx_pen_dev);
+	if (ic_data->HX_STYLUS_FUNC)
+		input_unregister_device(ts->stylus_dev);
 err_input_register_device_failed:
 #if defined(CONFIG_TOUCHSCREEN_HIMAX_DEBUG)
 	himax_debug_remove();
@@ -3398,7 +3139,7 @@ void himax_chip_common_deinit(void)
 	destroy_workqueue(ts->himax_att_wq);
 #endif
 	input_free_device(ts->input_dev);
-#if defined(HX_CONTAINER_SPEED_UP) || defined(HX_RESUME_BY_DDI)
+#if defined(HX_CONTAINER_SPEED_UP)
 	cancel_delayed_work_sync(&ts->ts_int_work);
 	destroy_workqueue(ts->ts_int_workqueue);
 #endif
@@ -3424,6 +3165,9 @@ void himax_chip_common_deinit(void)
 	kfree(ts);
 	ts = NULL;
 	probe_fail_flag = 0;
+#if defined(HX_USE_KSYM)
+	hx_release_chip_entry();
+#endif
 
 	I("%s: Common section deinited!\n", __func__);
 }
@@ -3456,9 +3200,7 @@ int himax_chip_common_suspend(struct himax_ts_data *ts)
 	if (ts->SMWP_enable) {
 #if defined(HX_CODE_OVERLAY)
 		if (ts->in_self_test == 0)
-		{
 			g_core_fp.fp_0f_overlay(2, 0);
-		}
 #endif
 		if (g_core_fp._ap_notify_fw_sus != NULL)
 			g_core_fp._ap_notify_fw_sus(1);
@@ -3535,7 +3277,7 @@ int himax_chip_common_resume(struct himax_ts_data *ts)
 #endif
 	I("It will update fw after resume in zero flash mode!\n");
 	if (g_core_fp.fp_0f_op_file_dirly != NULL) {
-		result = g_core_fp.fp_0f_op_file_dirly(BOOT_UPGRADE_FWNAME);
+		result = g_core_fp.fp_0f_op_file_dirly(g_fw_boot_upgrade_name);
 		if (result) {
 			E("Something wrong! Skip Update zero flash!\n");
 			goto ESCAPE_0F_UPDATE;

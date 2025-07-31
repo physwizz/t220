@@ -138,6 +138,17 @@ struct nf_conn {
 	/* Atomic variable indicating end of intermediate flow */
 	atomic_t intermediateFlow;
 	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
+
+#ifdef CONFIG_HW_FORWARD
+	u32 packet_count;
+	bool forward_registered;
+	struct net_device *netdev;
+#endif
+#ifdef CONFIG_LINK_FORWARD
+	u32 packet_count;
+	bool linkforward_registered;
+	struct net_device *netdev;
+#endif
 };
 
 static inline struct nf_conn *

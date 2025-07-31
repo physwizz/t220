@@ -53,6 +53,8 @@ static u64 parse_audio_format_i_type(struct snd_usb_audio *chip,
 	case UAC_VERSION_1:
 	default: {
 		struct uac_format_type_i_discrete_descriptor *fmt = _fmt;
+		if (format >= 64)
+			return 0; /* invalid format */
 		sample_width = fmt->bBitResolution;
 		sample_bytes = fmt->bSubframeSize;
 		format = 1ULL << format;
@@ -221,6 +223,7 @@ static int parse_audio_format_rates_v1(struct snd_usb_audio *chip, struct audiof
 				((chip->usb_id == USB_ID(0x194f, 0x0101)) || (chip->usb_id == USB_ID(0x194f, 0x0302))))
 				continue;
 /*huaqin add MTK patch for cts test audio usb record fail by limengxia at 2021/3/12 end*/
+
 			fp->rate_table[fp->nr_rates] = rate;
 			if (!fp->rate_min || rate < fp->rate_min)
 				fp->rate_min = rate;

@@ -76,6 +76,7 @@ extern struct pinctrl *lcd_pinctrl1;
 extern struct pinctrl_state *lcd_disp_pwm;
 extern struct pinctrl_state *lcd_disp_pwm_gpio;
 
+extern bool g_system_is_shutdown;
 
 
 /* ----------------------------------------------------------------- */
@@ -130,12 +131,21 @@ static struct LCM_setting_table lcm_suspend_setting[] = {
 };
 
 static struct LCM_setting_table init_setting_vdo[] = {
+	{0xFF,0x01,{0x23}},
+	{0xFB,0x01,{0x01}},
+	//12bit
+	{0x00,0x01,{0x80}},
+	//16.5khz
+	{0x07,0x01,{0x00}},
+	{0x08,0x01,{0x02}},
+	{0x09,0x01,{0x00}},
+
 	{0xFF, 1, {0x10}},
 	{0xFB, 1, {0x01}},
 	{0xBB, 1, {0x13}},
 	{0x3B, 5, {0x03,0x0A,0xFF,0x04,0x04}},
 	{0x68, 2, {0x03,0x01}},
-	{0x51, 1, {0x00}},
+	{0x51, 2, {0x00,0x00}},
 	{0x53, 1, {0x2C}},
 	{0x55, 1, {0x00}},
 	{0x35, 1, {0x00}},
@@ -149,7 +159,7 @@ static struct LCM_setting_table init_setting_vdo[] = {
 
 static struct LCM_setting_table bl_level[] = {
 	{0xFF, 1, {0x10}},
-	{0x51, 1, {0x00}},
+	{0x51, 2, {0x00,0x00}},
 	{REGFLAG_END_OF_TABLE, 0x00, {}}
 };
 
@@ -239,8 +249,8 @@ static void lcm_get_params(struct LCM_PARAMS *params)
 	params->dsi.vertical_active_line = FRAME_HEIGHT;
 
 	params->dsi.horizontal_sync_active = 14;
-	params->dsi.horizontal_backporch = 30;
-	params->dsi.horizontal_frontporch = 30;
+	params->dsi.horizontal_backporch = 86;
+	params->dsi.horizontal_frontporch = 88;
 	params->dsi.horizontal_active_pixel = FRAME_WIDTH;
 	params->dsi.ssc_range = 4;
 	params->dsi.ssc_disable = 1;
@@ -249,7 +259,7 @@ static void lcm_get_params(struct LCM_PARAMS *params)
 #if (LCM_DSI_CMD_MODE)
 	params->dsi.PLL_CLOCK = 270;
 #else
-	params->dsi.PLL_CLOCK = 265;
+	params->dsi.PLL_CLOCK = 300;
 #endif
 	/* params->dsi.PLL_CK_CMD = 220; */
 	/* params->dsi.PLL_CK_VDO = 255; */
@@ -375,8 +385,9 @@ static void lcm_setbacklight_cmdq(void *handle, unsigned int level)
 	/*TabA7 Lite code for OT8-4520 by gaozhengwei at 20210407 start*/
 	/* Backlight data is mapped to 8 bits,The default scale is 1:1 */
 	/* The initial backlight current is 22mA */
-	level = mult_frac(level, 18, 22); //Backlight current setting 22mA -> 18mA
-	bl_level[1].para_list[0] = level;
+	level = mult_frac(level, 2457, 187); //Backlight current setting 22mA -> 18mA
+	bl_level[1].para_list[0] = level >> 8;
+	bl_level[1].para_list[1] = level & 0xFF;
 	/*TabA7 Lite code for OT8-4520 by gaozhengwei at 20210407 end*/
 
 	push_table(handle, bl_level,

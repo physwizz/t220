@@ -625,6 +625,7 @@ void input_booster_init(void)
 	ndevice_in_dt = of_get_child_count(np);
 	pr_info(ITAG" %s   ndevice_in_dt : %d\n", __func__, ndevice_in_dt);
 
+
 	ib_device_trees = kcalloc(ABS_CNT, ib_dt_size * ndevice_in_dt, GFP_KERNEL);
 	if (ib_device_trees == NULL) {
 		pr_err(ITAG" dt_infor mem alloc fail");
