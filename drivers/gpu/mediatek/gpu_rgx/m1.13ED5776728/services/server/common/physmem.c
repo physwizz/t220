@@ -492,23 +492,6 @@ if (ui32NumVirtChunks == 0)
 	return PVRSRV_OK;
 }
 
-static INLINE void _PromoteToCpuCached(PVRSRV_MEMALLOCFLAGS_T *puiFlags)
-{
-	if ((*puiFlags & (PVRSRV_MEMALLOCFLAG_CPU_READABLE |
-	                  PVRSRV_MEMALLOCFLAG_CPU_WRITEABLE |
-	                  PVRSRV_MEMALLOCFLAG_KERNEL_CPU_MAPPABLE)) == 0)
-	{
-		/* We don't need to upgrade if we don't map into the CPU */
-		return;
-	}
-
-	/* Clear the existing CPU cache flags */
-	*puiFlags &= ~(PVRSRV_MEMALLOCFLAG_CPU_CACHE_MODE_MASK);
-
-	/* Add CPU cached flags */
-	*puiFlags |= PVRSRV_MEMALLOCFLAG_CPU_CACHE_INCOHERENT;
-}
-
 PVRSRV_ERROR
 PhysmemNewRamBackedPMR(CONNECTION_DATA *psConnection,
                        PVRSRV_DEVICE_NODE *psDevNode,
@@ -530,16 +513,7 @@ PhysmemNewRamBackedPMR(CONNECTION_DATA *psConnection,
 	PFN_SYS_DEV_CHECK_MEM_ALLOC_SIZE pfnCheckMemAllocSize =
 		psDevNode->psDevConfig->pfnCheckMemAllocSize;
 
-	PVR_LOG_RETURN_IF_INVALID_PARAM(uiAnnotationLength != 0, "uiAnnotationLength");
-	PVR_LOG_RETURN_IF_INVALID_PARAM(pszAnnotation != NULL, "pszAnnotation");
-
 	PVR_UNREFERENCED_PARAMETER(uiAnnotationLength);
-
-	if (PVRSRVSystemSnoopingOfCPUCache(psDevNode->psDevConfig) &&
-		psDevNode->pfnGetDeviceSnoopMode(psDevNode) == PVRSRV_DEVICE_SNOOP_CPU_ONLY)
-	{
-		_PromoteToCpuCached(&uiFlags);
-	}
 
 	eError = PhysMemValidateParams(ui32NumPhysChunks,
 	                               ui32NumVirtChunks,

@@ -350,8 +350,6 @@ typedef struct _PVRSRV_DEVICE_NODE_
 	                                          IMG_UINT32 ui32MemspaceNameLen);
 #endif
 
-	PVRSRV_DEVICE_SNOOP_MODE (*pfnGetDeviceSnoopMode)(struct _PVRSRV_DEVICE_NODE_ *psDevNode);
-
 	PVRSRV_DEVICE_CONFIG	*psDevConfig;
 
 	/* device post-finalise compatibility check */

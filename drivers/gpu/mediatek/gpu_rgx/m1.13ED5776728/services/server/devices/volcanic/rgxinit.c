@@ -1045,17 +1045,6 @@ static PVRSRV_ERROR RGXGetSecurePDumpMemspace(PVRSRV_DEVICE_NODE *psDeviceNode,
 }
 #endif
 
-
-/*
-	RGXDevSnoopMode
-*/
-static PVRSRV_DEVICE_SNOOP_MODE RGXDevSnoopMode(PVRSRV_DEVICE_NODE *psDeviceNode)
-{
-	PVR_UNREFERENCED_PARAMETER(psDeviceNode);
-
-	return PVRSRV_DEVICE_SNOOP_NONE;
-}
-
 /*
  * RGXInitDevPart2
  */
@@ -3908,7 +3897,6 @@ PVRSRV_ERROR RGXRegisterDevice (PVRSRV_DEVICE_NODE *psDeviceNode)
 
 	psDeviceNode->pfnValidateOrTweakPhysAddrs = NULL;
 
-	psDeviceNode->pfnGetDeviceSnoopMode = RGXDevSnoopMode;
 	psDeviceNode->pfnMMUCacheInvalidate = RGXMMUCacheInvalidate;
 
 	psDeviceNode->pfnMMUCacheInvalidateKick = RGXMMUCacheInvalidateKick;

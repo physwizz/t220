@@ -152,7 +152,6 @@ typedef struct _PROCESS_HANDLE_BASE_
 {
 	PVRSRV_HANDLE_BASE *psHandleBase;
 	ATOMIC_T iRefCount;
-	uintptr_t uiHashKey;
 } PROCESS_HANDLE_BASE;
 
 extern PVRSRV_HANDLE_BASE *gpsKernelHandleBase;
@@ -196,13 +195,7 @@ PVRSRV_ERROR PVRSRVHandleInit(void);
 
 PVRSRV_ERROR PVRSRVHandleDeInit(void);
 
-/* Only called from sync_fallback_server.c */
-#if defined(SUPPORT_FALLBACK_FENCE_SYNC)
 PVRSRV_HANDLE_BASE *PVRSRVRetrieveProcessHandleBase(void);
-#endif
-
-PVRSRV_ERROR PVRSRVAcquireProcessHandleBase(PROCESS_HANDLE_BASE **ppsBase);
-PVRSRV_ERROR PVRSRVReleaseProcessHandleBase(PROCESS_HANDLE_BASE *psBase, IMG_UINT64 ui64MaxBridgeTime);
 
 void LockHandle(PVRSRV_HANDLE_BASE *psBase);
 void UnlockHandle(PVRSRV_HANDLE_BASE *psBase);
